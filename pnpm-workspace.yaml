@@ -1,3 +1,11 @@
 packages:
   - apps/*
   - packages/*
+
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - electron-to-chromium
+  - ignore
+
+allowBuilds:
+  unrs-resolver: true

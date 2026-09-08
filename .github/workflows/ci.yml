@@ -6,26 +6,59 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  web:
+  prepare:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: pnpm/setup@v2
         with:
           version: 12.3.4
-      - uses: actions/setup-node@v4
+          runtime: node@26
+          install: false
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          node-version: 26
-          cache: pnpm
+          components: rustfmt
       - run: pnpm install --no-frozen-lockfile
+      - run: cargo fmt --manifest-path apps/api/Cargo.toml
+      - name: Commit generated repository updates
+        shell: bash
+        run: |
+          if git diff --quiet -- pnpm-lock.yaml apps/api; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pnpm-lock.yaml apps/api
+          git commit -m "chore(repo): normalize generated files"
+          git push
+
+  web:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: pnpm/setup@v2
+        with:
+          version: 12.3.4
+          runtime: node@26
+          install: false
+          cache: true
+      - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web lint
       - run: pnpm --dir apps/web typecheck
+      - run: pnpm --dir apps/web typecheck:compat
       - run: pnpm --dir apps/web build
 
   api:
+    needs: prepare
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -33,7 +66,7 @@ jobs:
         env:
           POSTGRES_DB: rohbar
           POSTGRES_USER: rohbar
-          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_PASSWORD: rohbar_ci
         ports:
           - 5432:5432
         options: >-
@@ -51,13 +84,18 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      DATABASE_URL: postgresql://rohbar@127.0.0.1:5432/rohbar
+      DATABASE_URL: postgresql://rohbar:rohbar_ci@127.0.0.1:5432/rohbar
       REDIS_URL: redis://127.0.0.1:6379
       RUST_LOG: info
+      RUSTFLAGS: -Dwarnings
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/api -> apps/api/target
       - run: rustc --version
       - run: cargo check --manifest-path apps/api/Cargo.toml
       - run: cargo test --manifest-path apps/api/Cargo.toml
