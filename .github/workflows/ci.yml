@@ -23,6 +23,7 @@ jobs:
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm --dir apps/web lint
       - run: pnpm --dir apps/web typecheck
+      - run: pnpm --dir apps/web typecheck:compat
       - run: pnpm --dir apps/web build
 
   api:
@@ -54,10 +55,14 @@ jobs:
       DATABASE_URL: postgresql://rohbar@127.0.0.1:5432/rohbar
       REDIS_URL: redis://127.0.0.1:6379
       RUST_LOG: info
+      RUSTFLAGS: -Dwarnings
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - uses: Swatinem/rust-cache@v2
       - run: rustc --version
+      - run: cargo fmt --manifest-path apps/api/Cargo.toml -- --check
       - run: cargo check --manifest-path apps/api/Cargo.toml
       - run: cargo test --manifest-path apps/api/Cargo.toml
