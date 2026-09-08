@@ -4,10 +4,7 @@ MAIN = Path("apps/api/src/main.rs")
 source = MAIN.read_text(encoding="utf-8")
 
 replacements = [
-    (
-        "mod telegram;\n",
-        "mod authz;\nmod telegram;\n",
-    ),
+    ("mod telegram;\n", "mod authz;\nmod telegram;\n"),
     (
         "use axum::{\n    Json, Router,\n",
         "use axum::{\n    Json, Router,\n    middleware,\n",
@@ -21,8 +18,8 @@ replacements = [
         "        \"rohbar_session={sid}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800{}\",\n        if secure { \"; Secure\" } else { \"\" }\n",
     ),
     (
-        "    .bind(&req.email)\n        .fetch_optional(&state.db)",
-        "    .bind(req.email.trim().to_lowercase())\n        .fetch_optional(&state.db)",
+        "    .bind(&req.email)\n    .fetch_optional(&state.db)",
+        "    .bind(req.email.trim().to_lowercase())\n    .fetch_optional(&state.db)",
     ),
     (
         "async fn auth_register(\n    State(state): State<SharedState>,\n    Json(req): Json<RegisterRequest>,\n) -> Response {\n    let salt = SaltString::generate(&mut rand::thread_rng());\n    let hash = match Argon2::default().hash_password(req.password.as_bytes(), &salt) {\n        Ok(hash) => hash.to_string(),\n        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, \"Password hashing failed\"),\n    };\n    let id = Uuid::new_v4();\n    let row = sqlx::query_as::<_, (Uuid, String, String, Option<String>)>(\n        \"INSERT INTO users(id,name,email,password_hash,role,phone) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,name,role,phone\",\n    )\n    .bind(id)\n    .bind(&req.name)\n    .bind(&req.email)\n    .bind(hash)\n    .bind(&req.role)\n    .bind(&req.phone)\n    .fetch_one(&state.db)\n    .await;\n\n    match row {\n        Ok((id, name, role, phone)) => match create_session(&state, id).await {\n            Ok(cookie) => {\n                let mut response = (\n                    StatusCode::CREATED,\n                    Json(json!({\n                        \"data\": { \"id\": id, \"name\": name, \"role\": role, \"phone\": phone }\n                    })),\n                )\n                    .into_response();\n                response.headers_mut().insert(header::SET_COOKIE, cookie);\n                response\n            }\n            Err(error) => error,\n        },\n        Err(_) => json_error(StatusCode::CONFLICT, \"User already exists\"),\n    }\n}\n",

@@ -25,16 +25,7 @@ pub async fn authorize_request(
     };
 
     if !is_allowed_role(&user.role, &method, &path) {
-        return (
-            StatusCode::FORBIDDEN,
-            axum::Json(serde_json::json!({
-                "error": {
-                    "code": "403",
-                    "message": "Insufficient permissions"
-                }
-            })),
-        )
-            .into_response();
+        return forbidden();
     }
 
     if method == Method::POST && path.starts_with("/api/v1/offers/") && path.ends_with("/accept") {
@@ -86,6 +77,9 @@ fn is_allowed_role(role: &str, method: &Method, path: &str) -> bool {
     if path == "/api/v1/ws" || path.ends_with("/stream") || path.ends_with("/events") {
         return true;
     }
+    if path == "/api/v1/events" && *method == Method::POST {
+        return false;
+    }
     if path == "/api/v1/shipments" && *method == Method::GET {
         return true;
     }
@@ -115,9 +109,6 @@ fn is_allowed_role(role: &str, method: &Method, path: &str) -> bool {
     }
     if path.starts_with("/api/v1/shipments/") && path.ends_with("/driver") && *method == Method::POST {
         return role == "carrier";
-    }
-    if path == "/api/v1/events" && *method == Method::POST {
-        return false;
     }
 
     false
