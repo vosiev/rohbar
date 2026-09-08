@@ -1,6 +1,6 @@
 import type { ApiResult, DriverAssignment, FleetVehicle, NotificationItem, Shipment, ShipmentEvent, ShipmentOffer, User } from "@/types";
 
-const baseUrl=process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/,"")||"https://api.vosiev.com";
+const baseUrl=process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/,"")||"https://rohbar-api.vosiev.com";
 const mode=process.env.NEXT_PUBLIC_API_MODE||"live";
 const mockUser:User={id:"usr_001",name:"Пользователь RohBar",role:"customer"};
 const mockShipments:Shipment[]=[{id:"RH-10482",from:"Москва",to:"Казань",date:"10 сентября 2026",cargo:"Строительные материалы",weight:"20 т",vehicle:"Тент 20 т",price:"85 000 ₽",status:"in_transit",company:"ООО «СтройТранс»"},{id:"RH-10479",from:"Санкт-Петербург",to:"Москва",date:"11 сентября 2026",cargo:"Оборудование",weight:"12 т",vehicle:"Тент",price:"72 000 ₽",status:"accepted",company:"ООО «СеверЛогистик»"}];
