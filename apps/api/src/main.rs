@@ -1,25 +1,28 @@
 mod telegram;
 
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use axum::{
-    extract::{Path, Query, State, WebSocketUpgrade},
-    extract::ws::{Message, WebSocket},
-    http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
-    response::{sse::{Event, KeepAlive, Sse}, IntoResponse, Response},
-    routing::{get, post},
     Json, Router,
+    extract::ws::{Message, WebSocket},
+    extract::{Path, Query, State, WebSocketUpgrade},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
+    response::{
+        IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
+    routing::{get, post},
 };
 use chrono::{DateTime, Utc};
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use sqlx::{postgres::PgPoolOptions, FromRow, PgPool, Row};
+use serde_json::{Value, json};
+use sqlx::{FromRow, PgPool, Row, postgres::PgPoolOptions};
 use std::{env, sync::Arc};
 use tokio::sync::broadcast;
-use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{error, info};
 use uuid::Uuid;
@@ -178,8 +181,8 @@ async fn main() {
         .await
         .expect("database migration failed");
     let redis = redis::Client::open(redis_url).expect("redis configuration failed");
-    let origin_text = env::var("FRONTEND_ORIGIN")
-        .unwrap_or_else(|_| "https://rohbar.vosiev.com".into());
+    let origin_text =
+        env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "https://rohbar.vosiev.com".into());
     let origin = origin_text
         .parse::<HeaderValue>()
         .expect("invalid FRONTEND_ORIGIN");
@@ -198,9 +201,7 @@ async fn main() {
             .map(|v| v != "false")
             .unwrap_or(true),
         frontend_origin: origin_text,
-        automation_secret: env::var("AUTOMATION_SECRET")
-            .ok()
-            .filter(|v| !v.is_empty()),
+        automation_secret: env::var("AUTOMATION_SECRET").ok().filter(|v| !v.is_empty()),
     });
 
     let cors = CorsLayer::new()
@@ -314,13 +315,11 @@ async fn session_user(headers: &HeaderMap, state: &SharedState) -> Result<User, 
     let user_id = Uuid::parse_str(&uid)
         .map_err(|_| json_error(StatusCode::UNAUTHORIZED, "Invalid session"))?;
 
-    sqlx::query_as::<_, User>(
-        "SELECT id,name,role,phone,telegram_id FROM users WHERE id=$1",
-    )
-    .bind(user_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|_| json_error(StatusCode::UNAUTHORIZED, "Invalid session"))
+    sqlx::query_as::<_, User>("SELECT id,name,role,phone,telegram_id FROM users WHERE id=$1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| json_error(StatusCode::UNAUTHORIZED, "Invalid session"))
 }
 
 async fn auth_me(State(state): State<SharedState>, headers: HeaderMap) -> Response {
@@ -441,23 +440,20 @@ async fn auth_logout(State(state): State<SharedState>, headers: HeaderMap) -> Re
     if let Some(cookie) = headers
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(';').find_map(|p| p.trim().strip_prefix("rohbar_session=")))
+        .and_then(|v| {
+            v.split(';')
+                .find_map(|p| p.trim().strip_prefix("rohbar_session="))
+        })
     {
         if let Ok(mut connection) = state.redis.get_multiplexed_async_connection().await {
             let _: Result<(), _> = connection.del(format!("rohbar:session:{cookie}")).await;
         }
     }
 
-    let mut response = (
-        StatusCode::OK,
-        Json(json!({ "data": { "ok": true } })),
-    )
-        .into_response();
+    let mut response = (StatusCode::OK, Json(json!({ "data": { "ok": true } }))).into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
-        HeaderValue::from_static(
-            "rohbar_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-        ),
+        HeaderValue::from_static("rohbar_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"),
     );
     response
 }
@@ -544,11 +540,7 @@ async fn create_shipment(
     match result {
         Ok(shipment) => {
             publish(&state, "shipment.created", &id, user.id, json!({})).await;
-            (
-                StatusCode::CREATED,
-                Json(json!({ "data": shipment })),
-            )
-                .into_response()
+            (StatusCode::CREATED, Json(json!({ "data": shipment }))).into_response()
         }
         Err(_) => json_error(StatusCode::BAD_REQUEST, "Invalid shipment"),
     }
@@ -746,11 +738,7 @@ async fn create_fleet(
     .await;
 
     match result {
-        Ok(vehicle) => (
-            StatusCode::CREATED,
-            Json(json!({ "data": vehicle })),
-        )
-            .into_response(),
+        Ok(vehicle) => (StatusCode::CREATED, Json(json!({ "data": vehicle }))).into_response(),
         Err(_) => json_error(StatusCode::BAD_REQUEST, "Invalid vehicle"),
     }
 }
@@ -803,11 +791,7 @@ async fn assign_driver(
                 json!({ "driverId": assignment.driver_id, "vehicleId": assignment.vehicle_id }),
             )
             .await;
-            (
-                StatusCode::CREATED,
-                Json(json!({ "data": assignment })),
-            )
-                .into_response()
+            (StatusCode::CREATED, Json(json!({ "data": assignment }))).into_response()
         }
         Err(_) => json_error(StatusCode::BAD_REQUEST, "Unable to assign driver"),
     }
@@ -897,14 +881,7 @@ async fn dispatch_event(
         return json_error(StatusCode::BAD_REQUEST, "Idempotency-Key is required");
     }
 
-    publish(
-        &state,
-        &req.event,
-        &req.aggregate_id,
-        user.id,
-        req.payload,
-    )
-    .await;
+    publish(&state, &req.event, &req.aggregate_id, user.id, req.payload).await;
     (
         StatusCode::ACCEPTED,
         Json(json!({ "data": { "accepted": true } })),
@@ -1022,10 +999,13 @@ async fn shipment_stream(
                     .event
                     .as_ref()
                     .map(|event| event.shipment_id.as_str())
-                    == Some(shipment_id.as_str()) => match Event::default().json_data(message) {
-                Ok(event) => Some(Ok::<Event, std::convert::Infallible>(event)),
-                Err(_) => None,
-            },
+                    == Some(shipment_id.as_str()) =>
+            {
+                match Event::default().json_data(message) {
+                    Ok(event) => Some(Ok::<Event, std::convert::Infallible>(event)),
+                    Err(_) => None,
+                }
+            }
             _ => None,
         }
     });

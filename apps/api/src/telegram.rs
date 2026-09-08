@@ -1,5 +1,8 @@
 use crate::{SharedState, User, create_session};
-use argon2::{Argon2, password_hash::{PasswordHasher, SaltString}};
+use argon2::{
+    Argon2,
+    password_hash::{PasswordHasher, SaltString},
+};
 use axum::{
     Json,
     extract::State,
@@ -88,12 +91,14 @@ pub async fn authenticate(
     init_data: String,
 ) -> Result<(User, HeaderValue), Response> {
     let token = state.telegram_token.as_deref().ok_or_else(|| {
-        crate::json_error(StatusCode::SERVICE_UNAVAILABLE, "Telegram bot is not configured")
+        crate::json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Telegram bot is not configured",
+        )
     })?;
 
-    let url = reqwest::Url::parse(&format!("https://rohbar.local/?{init_data}")).map_err(|_| {
-        crate::json_error(StatusCode::BAD_REQUEST, "Invalid Telegram init data")
-    })?;
+    let url = reqwest::Url::parse(&format!("https://rohbar.local/?{init_data}"))
+        .map_err(|_| crate::json_error(StatusCode::BAD_REQUEST, "Invalid Telegram init data"))?;
     let mut pairs = Vec::new();
     let mut received_hash = None;
     let mut user_json = None;
@@ -123,13 +128,13 @@ pub async fn authenticate(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let mut secret_mac = HmacSha256::new_from_slice(b"WebAppData")
-        .expect("HMAC accepts keys of arbitrary length");
+    let mut secret_mac =
+        HmacSha256::new_from_slice(b"WebAppData").expect("HMAC accepts keys of arbitrary length");
     secret_mac.update(token.as_bytes());
     let secret_key = secret_mac.finalize().into_bytes();
 
-    let mut check_mac = HmacSha256::new_from_slice(&secret_key)
-        .expect("HMAC accepts keys of arbitrary length");
+    let mut check_mac =
+        HmacSha256::new_from_slice(&secret_key).expect("HMAC accepts keys of arbitrary length");
     check_mac.update(data_check_string.as_bytes());
     let calculated_hash = hex::encode(check_mac.finalize().into_bytes());
 
@@ -154,12 +159,10 @@ pub async fn authenticate(
         ));
     }
 
-    let user_json = user_json.ok_or_else(|| {
-        crate::json_error(StatusCode::UNAUTHORIZED, "Telegram user is missing")
-    })?;
-    let telegram_user: TelegramUser = serde_json::from_str(&user_json).map_err(|_| {
-        crate::json_error(StatusCode::UNAUTHORIZED, "Invalid Telegram user data")
-    })?;
+    let user_json = user_json
+        .ok_or_else(|| crate::json_error(StatusCode::UNAUTHORIZED, "Telegram user is missing"))?;
+    let telegram_user: TelegramUser = serde_json::from_str(&user_json)
+        .map_err(|_| crate::json_error(StatusCode::UNAUTHORIZED, "Invalid Telegram user data"))?;
 
     let name = match telegram_user.last_name.as_deref() {
         Some(last_name) if !last_name.is_empty() => {
@@ -172,7 +175,9 @@ pub async fn authenticate(
     let salt = SaltString::generate(&mut rand::thread_rng());
     let password_hash = Argon2::default()
         .hash_password(password.as_bytes(), &salt)
-        .map_err(|_| crate::json_error(StatusCode::INTERNAL_SERVER_ERROR, "Password hashing failed"))?
+        .map_err(|_| {
+            crate::json_error(StatusCode::INTERNAL_SERVER_ERROR, "Password hashing failed")
+        })?
         .to_string();
 
     let user = sqlx::query_as::<_, User>(
