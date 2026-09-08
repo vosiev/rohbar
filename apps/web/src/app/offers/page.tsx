@@ -1,0 +1,1 @@
+export default function OffersPage(){return <main className="mx-auto max-w-5xl p-6"><h1 className="text-3xl font-black">Предложения перевозчиков</h1><p className="mt-2 text-slate-500">Здесь заказчик сможет сравнивать и принимать предложения.</p></main>;}
