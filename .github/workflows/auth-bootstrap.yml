@@ -1,0 +1,30 @@
+name: bootstrap auth foundation
+
+on:
+  push:
+    branches:
+      - feat/auth-foundation-v1
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feat/auth-foundation-v1
+      - name: Apply safe backend auth patch
+        run: python3 scripts/auth_bootstrap.py
+      - name: Remove bootstrap tooling
+        run: rm -f scripts/auth_bootstrap.py .github/workflows/auth-bootstrap.yml
+      - name: Commit backend auth foundation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/api/src/main.rs apps/api/src/authz.rs
+          git add -u scripts/auth_bootstrap.py .github/workflows/auth-bootstrap.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(auth): enforce backend registration and authorization"
+          git push origin feat/auth-foundation-v1
