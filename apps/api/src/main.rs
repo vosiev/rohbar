@@ -1,3 +1,4 @@
+mod authz;
 mod telegram;
 
 use argon2::{
@@ -6,6 +7,7 @@ use argon2::{
 };
 use axum::{
     Json, Router,
+    middleware,
     extract::ws::{Message, WebSocket},
     extract::{Path, Query, State, WebSocketUpgrade},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
@@ -252,6 +254,7 @@ async fn main() {
         )
         .route("/api/v1/events", post(dispatch_event))
         .route("/api/v1/telegram/webhook", post(telegram::webhook))
+        .route_layer(middleware::from_fn_with_state(state.clone(), authz::authorize_request))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -331,7 +334,7 @@ async fn auth_me(State(state): State<SharedState>, headers: HeaderMap) -> Respon
 
 fn session_cookie(sid: &str, secure: bool) -> HeaderValue {
     let value = format!(
-        "rohbar_session={sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000{}",
+        "rohbar_session={sid}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800{}",
         if secure { "; Secure" } else { "" }
     );
     HeaderValue::from_str(&value).expect("cookie")
@@ -362,7 +365,7 @@ async fn auth_login(State(state): State<SharedState>, Json(req): Json<LoginReque
     let row = sqlx::query_as::<_, (Uuid, String, String, String, Option<String>)>(
         "SELECT id,name,role,password_hash,phone FROM users WHERE email=$1",
     )
-    .bind(&req.email)
+    .bind(req.email.trim().to_lowercase())
     .fetch_optional(&state.db)
     .await;
 
@@ -399,6 +402,23 @@ async fn auth_register(
     State(state): State<SharedState>,
     Json(req): Json<RegisterRequest>,
 ) -> Response {
+    let name = req.name.trim();
+    let email = req.email.trim().to_lowercase();
+    let phone = req.phone.as_deref().map(str::trim).filter(|value| !value.is_empty());
+
+    if !(2..=100).contains(&name.chars().count())
+        || email.len() > 254
+        || !email.contains('@')
+        || !(15..=128).contains(&req.password.chars().count())
+    {
+        return json_error(StatusCode::BAD_REQUEST, "Invalid registration data");
+    }
+
+    let role = match req.role.as_str() {
+        "customer" | "carrier" | "driver" => req.role.as_str(),
+        _ => return json_error(StatusCode::BAD_REQUEST, "Invalid registration role"),
+    };
+
     let salt = SaltString::generate(&mut rand::thread_rng());
     let hash = match Argon2::default().hash_password(req.password.as_bytes(), &salt) {
         Ok(hash) => hash.to_string(),
@@ -409,11 +429,11 @@ async fn auth_register(
         "INSERT INTO users(id,name,email,password_hash,role,phone) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,name,role,phone",
     )
     .bind(id)
-    .bind(&req.name)
-    .bind(&req.email)
+    .bind(name)
+    .bind(email)
     .bind(hash)
-    .bind(&req.role)
-    .bind(&req.phone)
+    .bind(role)
+    .bind(phone)
     .fetch_one(&state.db)
     .await;
 
@@ -432,7 +452,10 @@ async fn auth_register(
             }
             Err(error) => error,
         },
-        Err(_) => json_error(StatusCode::CONFLICT, "User already exists"),
+        Err(error) if error.as_database_error().is_some_and(|db_error| db_error.is_unique_violation()) => {
+            json_error(StatusCode::BAD_REQUEST, "Unable to create account")
+        }
+        Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "Unable to create account"),
     }
 }
 
@@ -453,7 +476,11 @@ async fn auth_logout(State(state): State<SharedState>, headers: HeaderMap) -> Re
     let mut response = (StatusCode::OK, Json(json!({ "data": { "ok": true } }))).into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
-        HeaderValue::from_static("rohbar_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"),
+        HeaderValue::from_str(&format!(
+            "rohbar_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0{}",
+            if state.session_cookie_secure { "; Secure" } else { "" }
+        ))
+        .expect("cookie"),
     );
     response
 }
