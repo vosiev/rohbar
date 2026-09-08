@@ -7,13 +7,15 @@ import { Button, Card, PageHeader, StatCard, StatusBadge } from "@/components/ro
 import { api } from "@/lib/api";
 import { createAutomationEvent, dispatchAutomation } from "@/lib/automation";
 
-const initialTrips=[
- {id:"RH-10482",route:"Москва → Казань",cargo:"Строительные материалы · 20 т",status:"in_transit" as const,time:"Сегодня · прибытие до 18:00"},
- {id:"RH-10479",route:"Санкт-Петербург → Москва",cargo:"Оборудование · 12 т",status:"accepted" as const,time:"11 сентября · 08:00"},
+type DriverTripStatus="accepted"|"in_transit"|"delivered";
+type DriverTrip={id:string;route:string;cargo:string;status:DriverTripStatus;time:string};
+const initialTrips:DriverTrip[]=[
+ {id:"RH-10482",route:"Москва → Казань",cargo:"Строительные материалы · 20 т",status:"in_transit",time:"Сегодня · прибытие до 18:00"},
+ {id:"RH-10479",route:"Санкт-Петербург → Москва",cargo:"Оборудование · 12 т",status:"accepted",time:"11 сентября · 08:00"},
 ];
 
 export default function DriverDashboard(){
- const [trips,setTrips]=useState(initialTrips);
+ const [trips,setTrips]=useState<DriverTrip[]>(initialTrips);
  const [busy,setBusy]=useState<string|null>(null);
  async function updateStatus(id:string,status:"in_transit"|"delivered"){
   setBusy(id);
