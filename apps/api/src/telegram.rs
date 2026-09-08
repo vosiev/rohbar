@@ -11,12 +11,12 @@ use axum::{
 };
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use sha2::Sha256;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Deserialize)]
-struct Update {
+pub(crate) struct Update {
     message: Option<Message>,
 }
 
@@ -220,17 +220,4 @@ impl UuidLikePassword {
     fn as_bytes(&self) -> &[u8] {
         &self.0
     }
-}
-
-pub async fn set_webhook(state: &SharedState, webhook_url: &str) -> Result<Value, reqwest::Error> {
-    let token = state.telegram_token.as_deref().unwrap_or("");
-    let secret = state.telegram_webhook_secret.as_deref().unwrap_or("");
-    let url = format!("https://api.telegram.org/bot{token}/setWebhook");
-    reqwest::Client::new()
-        .post(url)
-        .json(&json!({"url":webhook_url,"secret_token":secret,"allowed_updates":["message"]}))
-        .send()
-        .await?
-        .json()
-        .await
 }
