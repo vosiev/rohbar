@@ -74,11 +74,11 @@ fn is_allowed_role(role: &str, method: &Method, path: &str) -> bool {
     if path.starts_with("/api/v1/notifications/") {
         return true;
     }
-    if path == "/api/v1/ws" || path.ends_with("/stream") || path.ends_with("/events") {
-        return true;
-    }
     if path == "/api/v1/events" && *method == Method::POST {
         return false;
+    }
+    if path == "/api/v1/ws" || path.ends_with("/stream") || path.ends_with("/events") {
+        return true;
     }
     if path == "/api/v1/shipments" && *method == Method::GET {
         return true;
