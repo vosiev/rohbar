@@ -1,28 +1,25 @@
 mod telegram;
 
 use argon2::{
-    Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
 };
 use axum::{
-    Json, Router,
-    extract::ws::{Message, WebSocket},
     extract::{Path, Query, State, WebSocketUpgrade},
-    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
-    response::{
-        IntoResponse, Response,
-        sse::{Event, KeepAlive, Sse},
-    },
+    extract::ws::{Message, WebSocket},
+    http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
+    response::{sse::{Event, KeepAlive, Sse}, IntoResponse, Response},
     routing::{get, post},
+    Json, Router,
 };
 use chrono::{DateTime, Utc};
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use sqlx::{FromRow, PgPool, Row, postgres::PgPoolOptions};
+use serde_json::{json, Value};
+use sqlx::{postgres::PgPoolOptions, FromRow, PgPool, Row};
 use std::{env, sync::Arc};
 use tokio::sync::broadcast;
-use tokio_stream::{StreamExt, wrappers::BroadcastStream};
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{error, info};
 use uuid::Uuid;
@@ -181,8 +178,8 @@ async fn main() {
         .await
         .expect("database migration failed");
     let redis = redis::Client::open(redis_url).expect("redis configuration failed");
-    let origin_text =
-        env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "https://rohbar.vosiev.com".into());
+    let origin_text = env::var("FRONTEND_ORIGIN")
+        .unwrap_or_else(|_| "https://rohbar.vosiev.com".into());
     let origin = origin_text
         .parse::<HeaderValue>()
         .expect("invalid FRONTEND_ORIGIN");
@@ -201,7 +198,9 @@ async fn main() {
             .map(|v| v != "false")
             .unwrap_or(true),
         frontend_origin: origin_text,
-        automation_secret: env::var("AUTOMATION_SECRET").ok().filter(|v| !v.is_empty()),
+        automation_secret: env::var("AUTOMATION_SECRET")
+            .ok()
+            .filter(|v| !v.is_empty()),
     });
 
     let cors = CorsLayer::new()
@@ -315,11 +314,13 @@ async fn session_user(headers: &HeaderMap, state: &SharedState) -> Result<User, 
     let user_id = Uuid::parse_str(&uid)
         .map_err(|_| json_error(StatusCode::UNAUTHORIZED, "Invalid session"))?;
 
-    sqlx::query_as::<_, User>("SELECT id,name,role,phone,telegram_id FROM users WHERE id=$1")
-        .bind(user_id)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|_| json_error(StatusCode::UNAUTHORIZED, "Invalid session"))
+    sqlx::query_as::<_, User>(
+        "SELECT id,name,role,phone,telegram_id FROM users WHERE id=$1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| json_error(StatusCode::UNAUTHORIZED, "Invalid session"))
 }
 
 async fn auth_me(State(state): State<SharedState>, headers: HeaderMap) -> Response {
@@ -337,7 +338,10 @@ fn session_cookie(sid: &str, secure: bool) -> HeaderValue {
     HeaderValue::from_str(&value).expect("cookie")
 }
 
-async fn create_session(state: &SharedState, user_id: Uuid) -> Result<HeaderValue, Response> {
+pub(crate) async fn create_session(
+    state: &SharedState,
+    user_id: Uuid,
+) -> Result<HeaderValue, Response> {
     let sid = Uuid::new_v4().to_string();
     let mut conn = state
         .redis
@@ -437,20 +441,23 @@ async fn auth_logout(State(state): State<SharedState>, headers: HeaderMap) -> Re
     if let Some(cookie) = headers
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| {
-            v.split(';')
-                .find_map(|p| p.trim().strip_prefix("rohbar_session="))
-        })
+        .and_then(|v| v.split(';').find_map(|p| p.trim().strip_prefix("rohbar_session=")))
     {
         if let Ok(mut connection) = state.redis.get_multiplexed_async_connection().await {
             let _: Result<(), _> = connection.del(format!("rohbar:session:{cookie}")).await;
         }
     }
 
-    let mut response = (StatusCode::OK, Json(json!({ "data": { "ok": true } }))).into_response();
+    let mut response = (
+        StatusCode::OK,
+        Json(json!({ "data": { "ok": true } })),
+    )
+        .into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
-        HeaderValue::from_static("rohbar_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"),
+        HeaderValue::from_static(
+            "rohbar_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
+        ),
     );
     response
 }
@@ -519,9 +526,10 @@ async fn create_shipment(
         Uuid::new_v4().simple().to_string()[..5].to_uppercase()
     );
     let result = sqlx::query_as::<_, Shipment>(
-        "INSERT INTO shipments(id,from_city,to_city,date,cargo,weight,vehicle,price,status,company,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'published',$9,$10) RETURNING id,from_city,to_city,date,cargo,weight,vehicle,price,status,company",
+        "INSERT INTO shipments(id,customer_id,from_city,to_city,date,cargo,weight,vehicle,price,status,company) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'published',$10) RETURNING id,from_city,to_city,date,cargo,weight,vehicle,price,status,company",
     )
     .bind(&id)
+    .bind(user.id)
     .bind(payload["from"].as_str().unwrap_or(""))
     .bind(payload["to"].as_str().unwrap_or(""))
     .bind(payload["date"].as_str().unwrap_or(""))
@@ -530,14 +538,17 @@ async fn create_shipment(
     .bind(payload["vehicle"].as_str().unwrap_or(""))
     .bind(payload["price"].as_str().unwrap_or(""))
     .bind(&user.name)
-    .bind(user.id)
     .fetch_one(&state.db)
     .await;
 
     match result {
         Ok(shipment) => {
             publish(&state, "shipment.created", &id, user.id, json!({})).await;
-            (StatusCode::CREATED, Json(json!({ "data": shipment }))).into_response()
+            (
+                StatusCode::CREATED,
+                Json(json!({ "data": shipment })),
+            )
+                .into_response()
         }
         Err(_) => json_error(StatusCode::BAD_REQUEST, "Invalid shipment"),
     }
@@ -554,7 +565,7 @@ async fn change_status(
         Err(error) => return error,
     };
     let result = sqlx::query_as::<_, Shipment>(
-        "UPDATE shipments SET status=$1,updated_at=NOW() WHERE id=$2 RETURNING id,from_city,to_city,date,cargo,weight,vehicle,price,status,company",
+        "UPDATE shipments SET status=$1 WHERE id=$2 RETURNING id,from_city,to_city,date,cargo,weight,vehicle,price,status,company",
     )
     .bind(&req.status)
     .bind(&id)
@@ -607,7 +618,7 @@ async fn list_offers(
         return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
     }
     match sqlx::query_as::<_, Offer>(
-        "SELECT id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status FROM shipment_offers WHERE shipment_id=$1 ORDER BY created_at DESC",
+        "SELECT id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status FROM offers WHERE shipment_id=$1 ORDER BY created_at DESC",
     )
     .bind(id)
     .fetch_all(&state.db)
@@ -633,7 +644,7 @@ async fn create_offer(
         Uuid::new_v4().simple().to_string()[..6].to_uppercase()
     );
     let result = sqlx::query_as::<_, Offer>(
-        "INSERT INTO shipment_offers(id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status) VALUES($1,$2,$3,$4,$5,$6,$7,'pending') RETURNING id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status",
+        "INSERT INTO offers(id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status) VALUES($1,$2,$3,$4,$5,$6,$7,'pending') RETURNING id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status",
     )
     .bind(&id)
     .bind(&shipment_id)
@@ -671,7 +682,7 @@ async fn accept_offer(
         Err(error) => return error,
     };
     let result = sqlx::query_as::<_, Offer>(
-        "UPDATE shipment_offers SET status='accepted' WHERE id=$1 RETURNING id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status",
+        "UPDATE offers SET status='accepted' WHERE id=$1 RETURNING id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status",
     )
     .bind(&id)
     .fetch_optional(&state.db)
@@ -699,7 +710,7 @@ async fn list_fleet(State(state): State<SharedState>, headers: HeaderMap) -> Res
         return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
     }
     match sqlx::query_as::<_, FleetVehicle>(
-        "SELECT id,plate,model,body,capacity,volume,status,driver_name FROM fleet_vehicles ORDER BY created_at DESC",
+        "SELECT id,plate,model,body,capacity,volume,status,driver_name FROM fleet_vehicles ORDER BY id",
     )
     .fetch_all(&state.db)
     .await
@@ -714,16 +725,18 @@ async fn create_fleet(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
-    if session_user(&headers, &state).await.is_err() {
-        return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
-    }
+    let user = match session_user(&headers, &state).await {
+        Ok(user) => user,
+        Err(error) => return error,
+    };
     let result = sqlx::query_as::<_, FleetVehicle>(
-        "INSERT INTO fleet_vehicles(id,plate,model,body,capacity,volume,status) VALUES($1,$2,$3,$4,$5,$6,'available') RETURNING id,plate,model,body,capacity,volume,status,driver_name",
+        "INSERT INTO fleet_vehicles(id,owner_id,plate,model,body,capacity,volume,status) VALUES($1,$2,$3,$4,$5,$6,$7,'available') RETURNING id,plate,model,body,capacity,volume,status,driver_name",
     )
     .bind(format!(
         "VH-{}",
         Uuid::new_v4().simple().to_string()[..6].to_uppercase()
     ))
+    .bind(user.id)
     .bind(payload["plate"].as_str().unwrap_or(""))
     .bind(payload["model"].as_str().unwrap_or(""))
     .bind(payload["body"].as_str().unwrap_or(""))
@@ -733,7 +746,11 @@ async fn create_fleet(
     .await;
 
     match result {
-        Ok(vehicle) => (StatusCode::CREATED, Json(json!({ "data": vehicle }))).into_response(),
+        Ok(vehicle) => (
+            StatusCode::CREATED,
+            Json(json!({ "data": vehicle })),
+        )
+            .into_response(),
         Err(_) => json_error(StatusCode::BAD_REQUEST, "Invalid vehicle"),
     }
 }
@@ -743,7 +760,7 @@ async fn list_assignments(State(state): State<SharedState>, headers: HeaderMap) 
         return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
     }
     match sqlx::query_as::<_, DriverAssignment>(
-        "SELECT shipment_id,driver_id,driver_name,phone,vehicle_id,vehicle_plate FROM driver_assignments ORDER BY created_at DESC",
+        "SELECT shipment_id,driver_id,driver_name,phone,vehicle_id,vehicle_plate FROM driver_assignments ORDER BY assigned_at DESC",
     )
     .fetch_all(&state.db)
     .await
@@ -786,7 +803,11 @@ async fn assign_driver(
                 json!({ "driverId": assignment.driver_id, "vehicleId": assignment.vehicle_id }),
             )
             .await;
-            (StatusCode::CREATED, Json(json!({ "data": assignment }))).into_response()
+            (
+                StatusCode::CREATED,
+                Json(json!({ "data": assignment })),
+            )
+                .into_response()
         }
         Err(_) => json_error(StatusCode::BAD_REQUEST, "Unable to assign driver"),
     }
@@ -876,7 +897,14 @@ async fn dispatch_event(
         return json_error(StatusCode::BAD_REQUEST, "Idempotency-Key is required");
     }
 
-    publish(&state, &req.event, &req.aggregate_id, user.id, req.payload).await;
+    publish(
+        &state,
+        &req.event,
+        &req.aggregate_id,
+        user.id,
+        req.payload,
+    )
+    .await;
     (
         StatusCode::ACCEPTED,
         Json(json!({ "data": { "accepted": true } })),
@@ -994,10 +1022,10 @@ async fn shipment_stream(
                     .event
                     .as_ref()
                     .map(|event| event.shipment_id.as_str())
-                    == Some(shipment_id.as_str()) =>
-            {
-                Event::default().json_data(message).ok().map(Ok)
-            }
+                    == Some(shipment_id.as_str()) => match Event::default().json_data(message) {
+                Ok(event) => Some(Ok::<Event, std::convert::Infallible>(event)),
+                Err(_) => None,
+            },
             _ => None,
         }
     });
