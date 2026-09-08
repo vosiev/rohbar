@@ -1,0 +1,20 @@
+{
+  "name": "RohBar Development",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    },
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "stable"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "forwardPorts": [3000, 8080],
+  "portsAttributes": {
+    "3000": { "label": "RohBar Web", "onAutoForward": "openBrowser" },
+    "8080": { "label": "RohBar API", "onAutoForward": "notify" }
+  },
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@10.15.0 --activate && pnpm install --no-frozen-lockfile && cd apps/api && cargo check",
+  "remoteUser": "vscode"
+}
