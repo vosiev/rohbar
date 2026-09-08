@@ -1,0 +1,4 @@
+node_modules
+
+# Rust build artifacts
+apps/api/target/
