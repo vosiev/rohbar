@@ -70,22 +70,22 @@ export default function RegisterPage() {
         <Card className="mt-5">
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="Имя" required>
-              <input className={inputClass} required autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ваше имя" />
+              <input className={inputClass} required minLength={2} maxLength={100} autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ваше имя" />
             </Field>
             <Field label="Email" required>
-              <input className={inputClass} required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" />
+              <input className={inputClass} required type="email" maxLength={254} autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" />
             </Field>
             <Field label="Телефон">
               <input className={inputClass} type="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+7 900 000-00-00" />
             </Field>
             <Field label="Пароль" required>
-              <input className={inputClass} required minLength={12} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Минимум 12 символов" />
+              <input className={inputClass} required minLength={15} maxLength={128} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Минимум 15 символов" />
             </Field>
           </div>
 
           {error ? <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
 
-          <Button type="submit" disabled={busy || name.trim().length < 2 || !email.trim() || password.length < 12} className="mt-6 w-full sm:w-auto">
+          <Button type="submit" disabled={busy || name.trim().length < 2 || !email.trim() || password.length < 15} className="mt-6 w-full sm:w-auto">
             {busy ? "Создание…" : "Создать аккаунт"}
             {!busy ? <ArrowRight size={17} /> : null}
           </Button>

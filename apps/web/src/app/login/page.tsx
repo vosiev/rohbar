@@ -46,12 +46,12 @@ export default function LoginPage() {
             <input className={inputClass} required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" />
           </Field>
           <Field label="Пароль" required>
-            <input type="password" className={inputClass} required minLength={12} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Минимум 12 символов" />
+            <input type="password" className={inputClass} required minLength={15} maxLength={128} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Минимум 15 символов" />
           </Field>
 
           {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
 
-          <Button type="submit" className="w-full" disabled={busy || !email.trim() || password.length < 12}>
+          <Button type="submit" className="w-full" disabled={busy || !email.trim() || password.length < 15}>
             {busy ? "Вход…" : "Войти"}
             {!busy ? <ArrowRight size={17} /> : null}
           </Button>
