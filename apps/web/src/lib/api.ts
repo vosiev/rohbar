@@ -1,16 +1,7 @@
 import type { ApiResult, Shipment, User } from "@/types";
-
-const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-
-async function request<T>(path:string, init?:RequestInit):Promise<ApiResult<T>> {
-  const response=await fetch(`${baseUrl}${path}`,{...init,headers:{"Content-Type":"application/json",...(init?.headers||{})},credentials:"include",cache:"no-store"});
-  const body=await response.json().catch(()=>null);
-  if(!response.ok)return {data:null,error:{code:String(body?.code||response.status),message:String(body?.message||"Request failed")}};
-  return {data:body?.data ?? body,error:null};
-}
-
-export const api={
-  auth:{me:()=>request<User>("/api/v1/auth/me")},
-  shipments:{list:(query="")=>request<Shipment[]>(`/api/v1/shipments${query?`?${query}`:""}`),get:(id:string)=>request<Shipment>(`/api/v1/shipments/${id}`),create:(payload:unknown)=>request<Shipment>("/api/v1/shipments",{method:"POST",body:JSON.stringify(payload)}),accept:(id:string)=>request<Shipment>(`/api/v1/shipments/${id}/accept`,{method:"POST"})},
-  health:()=>request<{status:string}>("/api/v1/health")
-};
+const baseUrl=process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/,"")||"";
+const mode=process.env.NEXT_PUBLIC_API_MODE||"mock";
+const mockUser:User={id:"usr_001",name:"Пользователь RohBar",role:"customer"};
+const mockShipments:Shipment[]=[{id:"RH-10482",from:"Москва",to:"Казань",date:"10 сентября 2026",cargo:"Строительные материалы",weight:"20 т",vehicle:"Тент 20 т",price:"85 000 ₽",status:"in_transit",company:"ООО «СтройТранс»"},{id:"RH-10479",from:"Санкт-Петербург",to:"Москва",date:"11 сентября 2026",cargo:"Оборудование",weight:"12 т",vehicle:"Тент",price:"72 000 ₽",status:"accepted",company:"ООО «СеверЛогистик»"}];
+async function request<T>(path:string,init?:RequestInit):Promise<ApiResult<T>>{try{const response=await fetch(`${baseUrl}${path}`,{...init,headers:{"Content-Type":"application/json",...(init?.headers||{})},credentials:"include",cache:"no-store"});const body=await response.json().catch(()=>null);if(!response.ok)return{data:null,error:{code:String(body?.code||response.status),message:String(body?.message||"Request failed")}};return{data:body?.data??body,error:null};}catch(error){return{data:null,error:{code:"NETWORK_ERROR",message:error instanceof Error?error.message:"Network request failed"}}}}
+export const api={auth:{me:async()=>mode==="mock"?{data:mockUser,error:null}:request<User>("/api/v1/auth/me")},shipments:{list:async(query="")=>mode==="mock"?{data:mockShipments,error:null}:request<Shipment[]>(`/api/v1/shipments${query?`?${query}`:""}`),get:async(id:string)=>mode==="mock"?{data:mockShipments.find(x=>x.id===id)||mockShipments[0],error:null}:request<Shipment>(`/api/v1/shipments/${id}`),create:async(payload:unknown)=>mode==="mock"?{data:{...mockShipments[0],id:`RH-${Date.now().toString().slice(-5)}`},error:null}:request<Shipment>("/api/v1/shipments",{method:"POST",body:JSON.stringify(payload)}),accept:async(id:string)=>mode==="mock"?{data:mockShipments.find(x=>x.id===id)||mockShipments[0],error:null}:request<Shipment>(`/api/v1/shipments/${id}/accept`,{method:"POST"})},health:async()=>mode==="mock"?{data:{status:"ok"},error:null}:request<{status:string}>("/api/v1/health")};
