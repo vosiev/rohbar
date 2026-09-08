@@ -68,7 +68,8 @@ fn is_allowed_role(role: &str, method: &Method, path: &str) -> bool {
         return true;
     }
 
-    if path == "/api/v1/auth/me" || path == "/api/v1/auth/logout" || path == "/api/v1/notifications" {
+    if path == "/api/v1/auth/me" || path == "/api/v1/auth/logout" || path == "/api/v1/notifications"
+    {
         return true;
     }
     if path.starts_with("/api/v1/notifications/") {
@@ -95,7 +96,10 @@ fn is_allowed_role(role: &str, method: &Method, path: &str) -> bool {
     if path.contains("/offers") && *method == Method::GET {
         return true;
     }
-    if path.starts_with("/api/v1/shipments/") && path.ends_with("/offers") && *method == Method::POST {
+    if path.starts_with("/api/v1/shipments/")
+        && path.ends_with("/offers")
+        && *method == Method::POST
+    {
         return role == "carrier";
     }
     if path.starts_with("/api/v1/offers/") && path.ends_with("/accept") && *method == Method::POST {
@@ -107,7 +111,10 @@ fn is_allowed_role(role: &str, method: &Method, path: &str) -> bool {
     if path == "/api/v1/drivers/assignments" {
         return role == "carrier" || role == "driver";
     }
-    if path.starts_with("/api/v1/shipments/") && path.ends_with("/driver") && *method == Method::POST {
+    if path.starts_with("/api/v1/shipments/")
+        && path.ends_with("/driver")
+        && *method == Method::POST
+    {
         return role == "carrier";
     }
 

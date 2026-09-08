@@ -7,10 +7,10 @@ use argon2::{
 };
 use axum::{
     Json, Router,
-    middleware,
     extract::ws::{Message, WebSocket},
     extract::{Path, Query, State, WebSocketUpgrade},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
+    middleware,
     response::{
         IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
@@ -254,7 +254,10 @@ async fn main() {
         )
         .route("/api/v1/events", post(dispatch_event))
         .route("/api/v1/telegram/webhook", post(telegram::webhook))
-        .route_layer(middleware::from_fn_with_state(state.clone(), authz::authorize_request))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            authz::authorize_request,
+        ))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -404,7 +407,11 @@ async fn auth_register(
 ) -> Response {
     let name = req.name.trim();
     let email = req.email.trim().to_lowercase();
-    let phone = req.phone.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    let phone = req
+        .phone
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
 
     if !(2..=100).contains(&name.chars().count())
         || email.len() > 254
@@ -452,10 +459,17 @@ async fn auth_register(
             }
             Err(error) => error,
         },
-        Err(error) if error.as_database_error().is_some_and(|db_error| db_error.is_unique_violation()) => {
+        Err(error)
+            if error
+                .as_database_error()
+                .is_some_and(|db_error| db_error.is_unique_violation()) =>
+        {
             json_error(StatusCode::BAD_REQUEST, "Unable to create account")
         }
-        Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "Unable to create account"),
+        Err(_) => json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Unable to create account",
+        ),
     }
 }
 
@@ -478,7 +492,11 @@ async fn auth_logout(State(state): State<SharedState>, headers: HeaderMap) -> Re
         header::SET_COOKIE,
         HeaderValue::from_str(&format!(
             "rohbar_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0{}",
-            if state.session_cookie_secure { "; Secure" } else { "" }
+            if state.session_cookie_secure {
+                "; Secure"
+            } else {
+                ""
+            }
         ))
         .expect("cookie"),
     );
