@@ -1,0 +1,4 @@
+export type AutomationEvent = "shipment.created" | "shipment.published" | "offer.created" | "offer.accepted" | "driver.assigned" | "shipment.status_changed" | "shipment.completed";
+export type AutomationEnvelope = { event:AutomationEvent; aggregateId:string; occurredAt:string; actorId:string; payload:Record<string,unknown> };
+export function createAutomationEvent(event:AutomationEvent,aggregateId:string,actorId:string,payload:Record<string,unknown>):AutomationEnvelope{return{event,aggregateId,actorId,occurredAt:new Date().toISOString(),payload}}
+export async function dispatchAutomation(event:AutomationEnvelope):Promise<void>{if(process.env.NEXT_PUBLIC_API_MODE==="mock")return;await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/events`,{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":`${event.event}:${event.aggregateId}:${event.occurredAt}`},credentials:"include",body:JSON.stringify(event)})}
