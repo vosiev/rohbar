@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  web:
+  prepare:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -22,24 +22,45 @@ jobs:
         with:
           node-version: 26
           cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - run: pnpm install --no-frozen-lockfile
-      - name: Commit refreshed lockfile
+      - run: cargo fmt --manifest-path apps/api/Cargo.toml
+      - name: Commit generated repository updates
         shell: bash
         run: |
-          if git diff --quiet -- pnpm-lock.yaml; then
+          if git diff --quiet -- pnpm-lock.yaml apps/api; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pnpm-lock.yaml
-          git commit -m "chore(deps): refresh pnpm lockfile"
+          git add pnpm-lock.yaml apps/api
+          git commit -m "chore(repo): normalize generated files"
           git push
+
+  web:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web lint
       - run: pnpm --dir apps/web typecheck
       - run: pnpm --dir apps/web typecheck:compat
       - run: pnpm --dir apps/web build
 
   api:
+    needs: prepare
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -74,24 +95,9 @@ jobs:
         with:
           ref: ${{ github.head_ref || github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/api -> apps/api/target
       - run: rustc --version
-      - name: Apply rustfmt
-        run: cargo fmt --manifest-path apps/api/Cargo.toml
-      - name: Commit rustfmt changes
-        shell: bash
-        run: |
-          if git diff --quiet -- apps/api; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/api
-          git commit -m "style(api): apply rustfmt"
-          git push
       - run: cargo check --manifest-path apps/api/Cargo.toml
       - run: cargo test --manifest-path apps/api/Cargo.toml
