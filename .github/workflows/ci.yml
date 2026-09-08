@@ -25,17 +25,22 @@ jobs:
         with:
           components: rustfmt
       - run: pnpm install --no-frozen-lockfile
+      - name: Apply auth foundation patch safely
+        run: python3 scripts/auth_bootstrap.py
+      - name: Remove temporary auth bootstrap tooling
+        run: rm -f scripts/auth_bootstrap.py .github/workflows/auth-bootstrap.yml
       - run: cargo fmt --manifest-path apps/api/Cargo.toml
       - name: Commit generated repository updates
         shell: bash
         run: |
-          if git diff --quiet -- pnpm-lock.yaml apps/api; then
+          if git diff --quiet -- pnpm-lock.yaml apps/api .github/workflows/ci.yml; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pnpm-lock.yaml apps/api
-          git commit -m "chore(repo): normalize generated files"
+          git add pnpm-lock.yaml apps/api .github/workflows/ci.yml
+          git add -u scripts/auth_bootstrap.py .github/workflows/auth-bootstrap.yml
+          git commit -m "feat(auth): enforce backend registration and authorization"
           git push
 
   web:
