@@ -1,0 +1,6 @@
+{
+  "name":"rohbar",
+  "private":true,
+  "packageManager":"pnpm@10.15.0",
+  "scripts":{"dev":"pnpm --filter rohbar-web dev","build":"pnpm --filter rohbar-web build","lint":"pnpm --filter rohbar-web lint"}
+}
