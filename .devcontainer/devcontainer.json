@@ -7,13 +7,14 @@
     },
     "ghcr.io/devcontainers/features/rust:1": {
       "version": "stable"
-    },
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    }
   },
-  "forwardPorts": [3000, 8080],
+  "forwardPorts": [3000, 8080, 5432, 6379],
   "portsAttributes": {
     "3000": { "label": "RohBar Web", "onAutoForward": "openBrowser" },
-    "8080": { "label": "RohBar API", "onAutoForward": "notify" }
+    "8080": { "label": "RohBar API", "onAutoForward": "notify" },
+    "5432": { "label": "RohBar PostgreSQL", "onAutoForward": "silent" },
+    "6379": { "label": "RohBar Redis", "onAutoForward": "silent" }
   },
   "postCreateCommand": "corepack enable && corepack prepare pnpm@10.15.0 --activate && pnpm install --no-frozen-lockfile && cd apps/api && cargo check",
   "remoteUser": "vscode"
