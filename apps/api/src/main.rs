@@ -162,6 +162,15 @@ pub struct EventRequest {
     payload: Value,
 }
 
+#[derive(Deserialize)]
+pub struct FleetRequest {
+    plate: String,
+    model: String,
+    body: String,
+    capacity: String,
+    volume: String,
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -180,6 +189,10 @@ async fn main() {
         .run(&db)
         .await
         .expect("database migration failed");
+    ensure_bootstrap_admin(&db)
+        .await
+        .expect("admin bootstrap failed");
+
     let redis = redis::Client::open(redis_url).expect("redis configuration failed");
     let origin_text =
         env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "https://rohbar.vosiev.com".into());
@@ -264,8 +277,68 @@ async fn main() {
     axum::serve(listener, app).await.expect("server failed");
 }
 
-async fn health() -> Json<Value> {
-    Json(json!({ "data": { "status": "ok" } }))
+async fn ensure_bootstrap_admin(db: &PgPool) -> Result<(), String> {
+    let email = match env::var("ADMIN_EMAIL") {
+        Ok(value) if !value.trim().is_empty() => value.trim().to_ascii_lowercase(),
+        _ => return Ok(()),
+    };
+    let password = match env::var("ADMIN_PASSWORD") {
+        Ok(value) if !value.is_empty() => value,
+        _ => return Err("ADMIN_PASSWORD is required when ADMIN_EMAIL is configured".into()),
+    };
+    if password.chars().count() < 12 {
+        return Err("ADMIN_PASSWORD must contain at least 12 characters".into());
+    }
+
+    if let Some((_, role)) = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id,role FROM users WHERE email=$1",
+    )
+    .bind(&email)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| "unable to check bootstrap admin".to_string())?
+    {
+        if role != "admin" {
+            return Err("ADMIN_EMAIL belongs to a non-admin user".into());
+        }
+        return Ok(());
+    }
+
+    let salt = SaltString::generate(&mut rand::thread_rng());
+    let hash = Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|_| "unable to hash admin password".to_string())?
+        .to_string();
+    let result = sqlx::query(
+        "INSERT INTO users(id,email,name,password_hash,role) VALUES($1,$2,$3,$4,'admin') ON CONFLICT(email) DO NOTHING",
+    )
+    .bind(Uuid::new_v4())
+    .bind(&email)
+    .bind("RohBar Administrator")
+    .bind(hash)
+    .execute(db)
+    .await
+    .map_err(|_| "unable to create bootstrap admin".to_string())?;
+
+    if result.rows_affected() == 1 {
+        info!(%email, "bootstrap admin created");
+    }
+    Ok(())
+}
+
+async fn health(State(state): State<SharedState>) -> Json<Value> {
+    let database = sqlx::query_scalar::<_, i32>("SELECT 1")
+        .fetch_one(&state.db)
+        .await
+        .is_ok();
+    let redis = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .and_then(|mut connection| async move { connection.ping::<String>().await }.boxed())
+        .await
+        .is_ok();
+    Json(json!({ "data": { "status": if database && redis { "ok" } else { "degraded" }, "database": database, "redis": redis } }))
 }
 
 async fn about(State(state): State<SharedState>) -> Json<Value> {
@@ -291,6 +364,31 @@ fn json_error(status: StatusCode, message: &str) -> Response {
         })),
     )
         .into_response()
+}
+
+fn normalized_email(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
+fn valid_registration_role(role: &str) -> bool {
+    matches!(role, "customer" | "carrier" | "driver")
+}
+
+fn has_role(user: &User, roles: &[&str]) -> bool {
+    roles.iter().any(|role| *role == user.role)
+}
+
+async fn require_role(
+    headers: &HeaderMap,
+    state: &SharedState,
+    roles: &[&str],
+) -> Result<User, Response> {
+    let user = session_user(headers, state).await?;
+    if has_role(&user, roles) {
+        Ok(user)
+    } else {
+        Err(json_error(StatusCode::FORBIDDEN, "Insufficient permissions"))
+    }
 }
 
 async fn session_user(headers: &HeaderMap, state: &SharedState) -> Result<User, Response> {
@@ -359,10 +457,15 @@ pub(crate) async fn create_session(
 }
 
 async fn auth_login(State(state): State<SharedState>, Json(req): Json<LoginRequest>) -> Response {
+    let email = normalized_email(&req.email);
+    if email.is_empty() || req.password.is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "Email and password are required");
+    }
+
     let row = sqlx::query_as::<_, (Uuid, String, String, String, Option<String>)>(
         "SELECT id,name,role,password_hash,phone FROM users WHERE email=$1",
     )
-    .bind(&req.email)
+    .bind(email)
     .fetch_optional(&state.db)
     .await;
 
@@ -399,6 +502,24 @@ async fn auth_register(
     State(state): State<SharedState>,
     Json(req): Json<RegisterRequest>,
 ) -> Response {
+    let name = req.name.trim();
+    let email = normalized_email(&req.email);
+    let role = req.role.trim();
+    let phone = req.phone.as_deref().map(str::trim).filter(|v| !v.is_empty());
+
+    if name.chars().count() < 2 || name.chars().count() > 120 {
+        return json_error(StatusCode::BAD_REQUEST, "Name must contain 2 to 120 characters");
+    }
+    if !email.contains('@') || email.len() > 254 {
+        return json_error(StatusCode::BAD_REQUEST, "Valid email is required");
+    }
+    if req.password.chars().count() < 8 {
+        return json_error(StatusCode::BAD_REQUEST, "Password must contain at least 8 characters");
+    }
+    if !valid_registration_role(role) {
+        return json_error(StatusCode::BAD_REQUEST, "Invalid registration role");
+    }
+
     let salt = SaltString::generate(&mut rand::thread_rng());
     let hash = match Argon2::default().hash_password(req.password.as_bytes(), &salt) {
         Ok(hash) => hash.to_string(),
@@ -409,11 +530,11 @@ async fn auth_register(
         "INSERT INTO users(id,name,email,password_hash,role,phone) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,name,role,phone",
     )
     .bind(id)
-    .bind(&req.name)
-    .bind(&req.email)
+    .bind(name)
+    .bind(&email)
     .bind(hash)
-    .bind(&req.role)
-    .bind(&req.phone)
+    .bind(role)
+    .bind(phone)
     .fetch_one(&state.db)
     .await;
 
@@ -432,7 +553,14 @@ async fn auth_register(
             }
             Err(error) => error,
         },
-        Err(_) => json_error(StatusCode::CONFLICT, "User already exists"),
+        Err(error) => {
+            let message = if error.as_database_error().is_some_and(|db_error| db_error.is_unique_violation()) {
+                "User already exists"
+            } else {
+                "Unable to create account"
+            };
+            json_error(StatusCode::CONFLICT, message)
+        }
     }
 }
 
@@ -440,10 +568,7 @@ async fn auth_logout(State(state): State<SharedState>, headers: HeaderMap) -> Re
     if let Some(cookie) = headers
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| {
-            v.split(';')
-                .find_map(|p| p.trim().strip_prefix("rohbar_session="))
-        })
+        .and_then(|v| v.split(';').find_map(|p| p.trim().strip_prefix("rohbar_session=")))
     {
         if let Ok(mut connection) = state.redis.get_multiplexed_async_connection().await {
             let _: Result<(), _> = connection.del(format!("rohbar:session:{cookie}")).await;
@@ -473,15 +598,33 @@ async fn auth_telegram(
 }
 
 async fn list_shipments(State(state): State<SharedState>, headers: HeaderMap) -> Response {
-    if session_user(&headers, &state).await.is_err() {
-        return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
-    }
-    match sqlx::query_as::<_, Shipment>(
-        "SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.db)
-    .await
-    {
+    let user = match session_user(&headers, &state).await {
+        Ok(user) => user,
+        Err(error) => return error,
+    };
+
+    let result = match user.role.as_str() {
+        "customer" => sqlx::query_as::<_, Shipment>(
+            "SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments WHERE customer_id=$1 ORDER BY created_at DESC",
+        )
+        .bind(user.id)
+        .fetch_all(&state.db)
+        .await,
+        "driver" => sqlx::query_as::<_, Shipment>(
+            "SELECT s.id,s.from_city,s.to_city,s.date,s.cargo,s.weight,s.vehicle,s.price,s.status,s.company FROM shipments s INNER JOIN driver_assignments da ON da.shipment_id=s.id WHERE da.driver_id=$1 ORDER BY s.created_at DESC",
+        )
+        .bind(user.id)
+        .fetch_all(&state.db)
+        .await,
+        "carrier" | "admin" => sqlx::query_as::<_, Shipment>(
+            "SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments WHERE status IN ('published','offered','accepted','in_transit','delivered') ORDER BY created_at DESC",
+        )
+        .fetch_all(&state.db)
+        .await,
+        _ => return json_error(StatusCode::FORBIDDEN, "Invalid user role"),
+    };
+
+    match result {
         Ok(shipments) => (StatusCode::OK, Json(json!({ "data": shipments }))).into_response(),
         Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error"),
     }
@@ -492,16 +635,20 @@ async fn get_shipment(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Response {
-    if session_user(&headers, &state).await.is_err() {
-        return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
-    }
-    match sqlx::query_as::<_, Shipment>(
-        "SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments WHERE id=$1",
+    let user = match session_user(&headers, &state).await {
+        Ok(user) => user,
+        Err(error) => return error,
+    };
+    let result = sqlx::query_as::<_, Shipment>(
+        "SELECT s.id,s.from_city,s.to_city,s.date,s.cargo,s.weight,s.vehicle,s.price,s.status,s.company FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS (SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND s.status IN ('published','offered','accepted','in_transit','delivered')))"
     )
     .bind(id)
+    .bind(user.id)
+    .bind(&user.role)
     .fetch_optional(&state.db)
-    .await
-    {
+    .await;
+
+    match result {
         Ok(Some(shipment)) => (StatusCode::OK, Json(json!({ "data": shipment }))).into_response(),
         Ok(None) => json_error(StatusCode::NOT_FOUND, "Shipment not found"),
         Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error"),
@@ -513,10 +660,14 @@ async fn create_shipment(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
-    let user = match session_user(&headers, &state).await {
+    let user = match require_role(&headers, &state, &["customer", "admin"]).await {
         Ok(user) => user,
         Err(error) => return error,
     };
+    let fields = ["from", "to", "date", "cargo", "weight", "vehicle", "price"];
+    if fields.iter().any(|field| payload[*field].as_str().is_none_or(|value| value.trim().is_empty())) {
+        return json_error(StatusCode::BAD_REQUEST, "All shipment fields are required");
+    }
     let id = format!(
         "RH-{}",
         Uuid::new_v4().simple().to_string()[..5].to_uppercase()
@@ -556,6 +707,23 @@ async fn change_status(
         Ok(user) => user,
         Err(error) => return error,
     };
+    let allowed = match user.role.as_str() {
+        "admin" => true,
+        "customer" => sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM shipments WHERE id=$1 AND customer_id=$2)")
+            .bind(&id).bind(user.id).fetch_one(&state.db).await.unwrap_or(false),
+        "carrier" => matches!(req.status.as_str(), "offered" | "accepted") && sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM offers o WHERE o.shipment_id=$1 AND o.carrier_id=$2)")
+            .bind(&id).bind(user.id).fetch_one(&state.db).await.unwrap_or(false),
+        "driver" => matches!(req.status.as_str(), "in_transit" | "delivered" | "completed") && sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM driver_assignments da WHERE da.shipment_id=$1 AND da.driver_id=$2)")
+            .bind(&id).bind(user.id).fetch_one(&state.db).await.unwrap_or(false),
+        _ => false,
+    };
+    if !allowed {
+        return json_error(StatusCode::FORBIDDEN, "Status change is not permitted");
+    }
+    let valid_status = matches!(req.status.as_str(), "published" | "offered" | "accepted" | "in_transit" | "delivered" | "completed");
+    if !valid_status {
+        return json_error(StatusCode::BAD_REQUEST, "Invalid status");
+    }
     let result = sqlx::query_as::<_, Shipment>(
         "UPDATE shipments SET status=$1 WHERE id=$2 RETURNING id,from_city,to_city,date,cargo,weight,vehicle,price,status,company",
     )
@@ -566,18 +734,11 @@ async fn change_status(
 
     match result {
         Ok(Some(shipment)) => {
-            publish(
-                &state,
-                "shipment.status_changed",
-                &id,
-                user.id,
-                json!({ "status": req.status }),
-            )
-            .await;
+            publish(&state, "shipment.status_changed", &id, user.id, json!({ "status": req.status })).await;
             (StatusCode::OK, Json(json!({ "data": shipment }))).into_response()
         }
         Ok(None) => json_error(StatusCode::NOT_FOUND, "Shipment not found"),
-        Err(_) => json_error(StatusCode::BAD_REQUEST, "Invalid status"),
+        Err(_) => json_error(StatusCode::BAD_REQUEST, "Invalid status change"),
     }
 }
 
@@ -586,8 +747,21 @@ async fn shipment_events(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Response {
-    if session_user(&headers, &state).await.is_err() {
-        return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
+    let user = match session_user(&headers, &state).await {
+        Ok(user) => user,
+        Err(error) => return error,
+    };
+    let allowed = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS(SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND s.status IN ('published','offered','accepted','in_transit','delivered'))))",
+    )
+    .bind(&id)
+    .bind(user.id)
+    .bind(&user.role)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(false);
+    if !allowed {
+        return json_error(StatusCode::NOT_FOUND, "Shipment not found");
     }
     match sqlx::query_as::<_, ShipmentEvent>(
         "SELECT id,shipment_id,event,actor_id,payload,occurred_at FROM shipment_events WHERE shipment_id=$1 ORDER BY occurred_at ASC",
@@ -606,13 +780,26 @@ async fn list_offers(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Response {
-    if session_user(&headers, &state).await.is_err() {
-        return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
+    let user = match session_user(&headers, &state).await {
+        Ok(user) => user,
+        Err(error) => return error,
+    };
+    let allowed = match user.role.as_str() {
+        "admin" => true,
+        "customer" => sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM shipments WHERE id=$1 AND customer_id=$2)").bind(&id).bind(user.id).fetch_one(&state.db).await.unwrap_or(false),
+        "carrier" => true,
+        "driver" => false,
+        _ => false,
+    };
+    if !allowed {
+        return json_error(StatusCode::FORBIDDEN, "Insufficient permissions");
     }
     match sqlx::query_as::<_, Offer>(
-        "SELECT id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status FROM offers WHERE shipment_id=$1 ORDER BY created_at DESC",
+        "SELECT id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status FROM offers WHERE shipment_id=$1 AND ($2='admin' OR $2='customer' OR carrier_id=$3) ORDER BY created_at DESC",
     )
     .bind(id)
+    .bind(&user.role)
+    .bind(user.id)
     .fetch_all(&state.db)
     .await
     {
@@ -627,10 +814,24 @@ async fn create_offer(
     Path(shipment_id): Path<String>,
     Json(req): Json<OfferRequest>,
 ) -> Response {
-    let user = match session_user(&headers, &state).await {
+    let user = match require_role(&headers, &state, &["carrier"]).await {
         Ok(user) => user,
         Err(error) => return error,
     };
+    if req.price.trim().is_empty() || req.eta.trim().is_empty() || req.vehicle.trim().is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "Offer fields are required");
+    }
+    let allowed = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM shipments WHERE id=$1 AND status IN ('published','offered') AND customer_id<>$2)",
+    )
+    .bind(&shipment_id)
+    .bind(user.id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(false);
+    if !allowed {
+        return json_error(StatusCode::NOT_FOUND, "Shipment is not available for offers");
+    }
     let id = format!(
         "OF-{}",
         Uuid::new_v4().simple().to_string()[..6].to_uppercase()
@@ -650,14 +851,7 @@ async fn create_offer(
 
     match result {
         Ok(offer) => {
-            publish(
-                &state,
-                "offer.created",
-                &shipment_id,
-                user.id,
-                json!({ "offerId": id }),
-            )
-            .await;
+            publish(&state, "offer.created", &shipment_id, user.id, json!({ "offerId": id })).await;
             (StatusCode::CREATED, Json(json!({ "data": offer }))).into_response()
         }
         Err(_) => json_error(StatusCode::BAD_REQUEST, "Invalid offer"),
@@ -673,8 +867,16 @@ async fn accept_offer(
         Ok(user) => user,
         Err(error) => return error,
     };
+    let allowed = match user.role.as_str() {
+        "admin" => true,
+        "customer" => sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM offers o INNER JOIN shipments s ON s.id=o.shipment_id WHERE o.id=$1 AND s.customer_id=$2)").bind(&id).bind(user.id).fetch_one(&state.db).await.unwrap_or(false),
+        _ => false,
+    };
+    if !allowed {
+        return json_error(StatusCode::FORBIDDEN, "Only the shipment owner or admin can accept offers");
+    }
     let result = sqlx::query_as::<_, Offer>(
-        "UPDATE offers SET status='accepted' WHERE id=$1 RETURNING id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status",
+        "UPDATE offers SET status='accepted' WHERE id=$1 AND status='pending' RETURNING id,shipment_id,carrier_id,carrier_name,vehicle,price,eta,status",
     )
     .bind(&id)
     .fetch_optional(&state.db)
@@ -682,31 +884,38 @@ async fn accept_offer(
 
     match result {
         Ok(Some(offer)) => {
-            publish(
-                &state,
-                "offer.accepted",
-                &offer.shipment_id,
-                user.id,
-                json!({ "offerId": offer.id }),
-            )
-            .await;
+            let _ = sqlx::query("UPDATE shipments SET status='accepted' WHERE id=$1 AND status IN ('published','offered')")
+                .bind(&offer.shipment_id)
+                .execute(&state.db)
+                .await;
+            publish(&state, "offer.accepted", &offer.shipment_id, user.id, json!({ "offerId": offer.id })).await;
             (StatusCode::OK, Json(json!({ "data": offer }))).into_response()
         }
-        Ok(None) => json_error(StatusCode::NOT_FOUND, "Offer not found"),
+        Ok(None) => json_error(StatusCode::NOT_FOUND, "Offer not found or already processed"),
         Err(_) => json_error(StatusCode::BAD_REQUEST, "Unable to accept offer"),
     }
 }
 
 async fn list_fleet(State(state): State<SharedState>, headers: HeaderMap) -> Response {
-    if session_user(&headers, &state).await.is_err() {
-        return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
-    }
-    match sqlx::query_as::<_, FleetVehicle>(
-        "SELECT id,plate,model,body,capacity,volume,status,driver_name FROM fleet_vehicles ORDER BY id",
-    )
-    .fetch_all(&state.db)
-    .await
-    {
+    let user = match require_role(&headers, &state, &["carrier", "admin"]).await {
+        Ok(user) => user,
+        Err(error) => return error,
+    };
+    let result = if user.role == "admin" {
+        sqlx::query_as::<_, FleetVehicle>(
+            "SELECT id,plate,model,body,capacity,volume,status,driver_name FROM fleet_vehicles ORDER BY id",
+        )
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, FleetVehicle>(
+            "SELECT id,plate,model,body,capacity,volume,status,driver_name FROM fleet_vehicles WHERE owner_id=$1 ORDER BY id",
+        )
+        .bind(user.id)
+        .fetch_all(&state.db)
+        .await
+    };
+    match result {
         Ok(vehicles) => (StatusCode::OK, Json(json!({ "data": vehicles }))).into_response(),
         Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error"),
     }
@@ -715,25 +924,30 @@ async fn list_fleet(State(state): State<SharedState>, headers: HeaderMap) -> Res
 async fn create_fleet(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Json(payload): Json<Value>,
+    Json(req): Json<FleetRequest>,
 ) -> Response {
-    let user = match session_user(&headers, &state).await {
+    let user = match require_role(&headers, &state, &["carrier", "admin"]).await {
         Ok(user) => user,
         Err(error) => return error,
     };
+    let plate = req.plate.trim();
+    let model = req.model.trim();
+    let body = req.body.trim();
+    let capacity = req.capacity.trim();
+    let volume = req.volume.trim();
+    if plate.is_empty() || model.is_empty() || body.is_empty() || capacity.is_empty() || volume.is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "All vehicle fields are required");
+    }
     let result = sqlx::query_as::<_, FleetVehicle>(
         "INSERT INTO fleet_vehicles(id,owner_id,plate,model,body,capacity,volume,status) VALUES($1,$2,$3,$4,$5,$6,$7,'available') RETURNING id,plate,model,body,capacity,volume,status,driver_name",
     )
-    .bind(format!(
-        "VH-{}",
-        Uuid::new_v4().simple().to_string()[..6].to_uppercase()
-    ))
+    .bind(format!("VH-{}", Uuid::new_v4().simple().to_string()[..6].to_uppercase()))
     .bind(user.id)
-    .bind(payload["plate"].as_str().unwrap_or(""))
-    .bind(payload["model"].as_str().unwrap_or(""))
-    .bind(payload["body"].as_str().unwrap_or(""))
-    .bind(payload["capacity"].as_str().unwrap_or(""))
-    .bind(payload["volume"].as_str().unwrap_or(""))
+    .bind(plate)
+    .bind(model)
+    .bind(body)
+    .bind(capacity)
+    .bind(volume)
     .fetch_one(&state.db)
     .await;
 
@@ -744,20 +958,21 @@ async fn create_fleet(
 }
 
 async fn list_assignments(State(state): State<SharedState>, headers: HeaderMap) -> Response {
-    if session_user(&headers, &state).await.is_err() {
-        return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
-    }
-    match sqlx::query_as::<_, DriverAssignment>(
-        "SELECT shipment_id,driver_id,driver_name,phone,vehicle_id,vehicle_plate FROM driver_assignments ORDER BY assigned_at DESC",
-    )
-    .fetch_all(&state.db)
-    .await
-    {
-        Ok(assignments) => (
-            StatusCode::OK,
-            Json(json!({ "data": assignments })),
-        )
-            .into_response(),
+    let user = match session_user(&headers, &state).await {
+        Ok(user) => user,
+        Err(error) => return error,
+    };
+    let result = match user.role.as_str() {
+        "admin" | "carrier" => sqlx::query_as::<_, DriverAssignment>(
+            "SELECT da.shipment_id,da.driver_id,da.driver_name,da.phone,da.vehicle_id,da.vehicle_plate FROM driver_assignments da LEFT JOIN shipments s ON s.id=da.shipment_id WHERE $1='admin' OR s.customer_id=$2 ORDER BY da.assigned_at DESC",
+        ).bind(&user.role).bind(user.id).fetch_all(&state.db).await,
+        "driver" => sqlx::query_as::<_, DriverAssignment>(
+            "SELECT shipment_id,driver_id,driver_name,phone,vehicle_id,vehicle_plate FROM driver_assignments WHERE driver_id=$1 ORDER BY assigned_at DESC",
+        ).bind(user.id).fetch_all(&state.db).await,
+        _ => return json_error(StatusCode::FORBIDDEN, "Insufficient permissions"),
+    };
+    match result {
+        Ok(assignments) => (StatusCode::OK, Json(json!({ "data": assignments }))).into_response(),
         Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error"),
     }
 }
@@ -768,12 +983,19 @@ async fn assign_driver(
     Path(id): Path<String>,
     Json(req): Json<DriverRequest>,
 ) -> Response {
-    let user = match session_user(&headers, &state).await {
+    let user = match require_role(&headers, &state, &["carrier", "admin"]).await {
         Ok(user) => user,
         Err(error) => return error,
     };
+    if user.role == "carrier" {
+        let owns = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM shipments WHERE id=$1 AND company=$2)")
+            .bind(&id).bind(&user.name).fetch_one(&state.db).await.unwrap_or(false);
+        if !owns {
+            return json_error(StatusCode::FORBIDDEN, "Shipment is not managed by this carrier");
+        }
+    }
     let result = sqlx::query_as::<_, DriverAssignment>(
-        "INSERT INTO driver_assignments(shipment_id,driver_id,driver_name,phone,vehicle_id,vehicle_plate) SELECT $1,u.id,u.name,u.phone,$3,v.plate FROM users u LEFT JOIN fleet_vehicles v ON v.id=$3 WHERE u.id=$2 RETURNING shipment_id,driver_id,driver_name,phone,vehicle_id,vehicle_plate",
+        "INSERT INTO driver_assignments(shipment_id,driver_id,driver_name,phone,vehicle_id,vehicle_plate) SELECT $1,u.id,u.name,u.phone,$3,v.plate FROM users u LEFT JOIN fleet_vehicles v ON v.id=$3 WHERE u.id=$2 AND u.role='driver' RETURNING shipment_id,driver_id,driver_name,phone,vehicle_id,vehicle_plate",
     )
     .bind(&id)
     .bind(req.driver_id)
@@ -783,14 +1005,7 @@ async fn assign_driver(
 
     match result {
         Ok(assignment) => {
-            publish(
-                &state,
-                "driver.assigned",
-                &id,
-                user.id,
-                json!({ "driverId": assignment.driver_id, "vehicleId": assignment.vehicle_id }),
-            )
-            .await;
+            publish(&state, "driver.assigned", &id, user.id, json!({ "driverId": assignment.driver_id, "vehicleId": assignment.vehicle_id })).await;
             (StatusCode::CREATED, Json(json!({ "data": assignment }))).into_response()
         }
         Err(_) => json_error(StatusCode::BAD_REQUEST, "Unable to assign driver"),
@@ -810,19 +1025,14 @@ async fn notifications(State(state): State<SharedState>, headers: HeaderMap) -> 
     .await
     {
         Ok(rows) => {
-            let data: Vec<Value> = rows
-                .into_iter()
-                .map(|row| {
-                    json!({
-                        "id": row.try_get::<Uuid, _>("id").unwrap_or_default(),
-                        "title": row.try_get::<String, _>("title").unwrap_or_default(),
-                        "text": row.try_get::<String, _>("text").unwrap_or_default(),
-                        "read": row.try_get::<bool, _>("read").unwrap_or(false),
-                        "createdAt": row.try_get::<DateTime<Utc>, _>("created_at").unwrap_or_else(|_| Utc::now()),
-                        "type": row.try_get::<String, _>("type").unwrap_or_default(),
-                    })
-                })
-                .collect();
+            let data: Vec<Value> = rows.into_iter().map(|row| json!({
+                "id": row.try_get::<Uuid, _>("id").unwrap_or_default(),
+                "title": row.try_get::<String, _>("title").unwrap_or_default(),
+                "text": row.try_get::<String, _>("text").unwrap_or_default(),
+                "read": row.try_get::<bool, _>("read").unwrap_or(false),
+                "createdAt": row.try_get::<DateTime<Utc>, _>("created_at").unwrap_or_else(|_| Utc::now()),
+                "type": row.try_get::<String, _>("type").unwrap_or_default(),
+            })).collect();
             (StatusCode::OK, Json(json!({ "data": data }))).into_response()
         }
         Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error"),
@@ -839,11 +1049,7 @@ async fn read_notification(
         Err(error) => return error,
     };
     match sqlx::query("UPDATE notifications SET read=true WHERE id=$1 AND user_id=$2")
-        .bind(id)
-        .bind(user.id)
-        .execute(&state.db)
-        .await
-    {
+        .bind(id).bind(user.id).execute(&state.db).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "data": { "ok": true } }))).into_response(),
         Err(_) => json_error(StatusCode::BAD_REQUEST, "Unable to update notification"),
     }
@@ -855,10 +1061,7 @@ async fn read_all_notifications(State(state): State<SharedState>, headers: Heade
         Err(error) => return error,
     };
     match sqlx::query("UPDATE notifications SET read=true WHERE user_id=$1")
-        .bind(user.id)
-        .execute(&state.db)
-        .await
-    {
+        .bind(user.id).execute(&state.db).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "data": { "ok": true } }))).into_response(),
         Err(_) => json_error(StatusCode::BAD_REQUEST, "Unable to update notifications"),
     }
@@ -869,60 +1072,31 @@ async fn dispatch_event(
     headers: HeaderMap,
     Json(req): Json<EventRequest>,
 ) -> Response {
-    let user = match session_user(&headers, &state).await {
+    let user = match require_role(&headers, &state, &["admin"]).await {
         Ok(user) => user,
         Err(error) => return error,
     };
-    let key = headers
-        .get("idempotency-key")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
+    let key = headers.get("idempotency-key").and_then(|value| value.to_str().ok()).unwrap_or("");
     if key.is_empty() {
         return json_error(StatusCode::BAD_REQUEST, "Idempotency-Key is required");
     }
-
     publish(&state, &req.event, &req.aggregate_id, user.id, req.payload).await;
-    (
-        StatusCode::ACCEPTED,
-        Json(json!({ "data": { "accepted": true } })),
-    )
-        .into_response()
+    (StatusCode::ACCEPTED, Json(json!({ "data": { "accepted": true } }))).into_response()
 }
 
-async fn publish(
-    state: &SharedState,
-    event: &str,
-    aggregate_id: &str,
-    actor_id: Uuid,
-    payload: Value,
-) {
+async fn publish(state: &SharedState, event: &str, aggregate_id: &str, actor_id: Uuid, payload: Value) {
     let id = Uuid::new_v4();
     if let Err(error) = sqlx::query(
         "INSERT INTO shipment_events(id,shipment_id,event,actor_id,payload) VALUES($1,$2,$3,$4,$5)",
     )
-    .bind(id)
-    .bind(aggregate_id)
-    .bind(event)
-    .bind(actor_id)
-    .bind(&payload)
-    .execute(&state.db)
-    .await
-    {
+    .bind(id).bind(aggregate_id).bind(event).bind(actor_id).bind(&payload).execute(&state.db).await {
         error!(%error, "event persistence failed");
         return;
     }
-
     let message = RealtimeMessage {
         r#type: event.into(),
         shipment: None,
-        event: Some(ShipmentEvent {
-            id,
-            shipment_id: aggregate_id.into(),
-            event: event.into(),
-            actor_id,
-            payload,
-            occurred_at: Utc::now(),
-        }),
+        event: Some(ShipmentEvent { id, shipment_id: aggregate_id.into(), event: event.into(), actor_id, payload, occurred_at: Utc::now() }),
         notification: None,
     };
     let _ = state.realtime.send(message);
@@ -943,23 +1117,15 @@ async fn websocket(
 
 async fn ws_loop(mut socket: WebSocket, state: SharedState, shipment: Option<String>) {
     let mut receiver = state.realtime.subscribe();
-
     loop {
         tokio::select! {
             result = receiver.recv() => {
                 match result {
                     Ok(message) => {
-                        let matches_shipment = shipment.as_ref().is_none_or(|id| {
-                            message.event.as_ref().map(|event| &event.shipment_id) == Some(id)
-                        });
+                        let matches_shipment = shipment.as_ref().is_none_or(|id| message.event.as_ref().map(|event| &event.shipment_id) == Some(id));
                         if matches_shipment {
-                            let payload = match serde_json::to_string(&message) {
-                                Ok(payload) => payload,
-                                Err(_) => continue,
-                            };
-                            if socket.send(Message::Text(payload.into())).await.is_err() {
-                                break;
-                            }
+                            let payload = match serde_json::to_string(&message) { Ok(payload) => payload, Err(_) => continue };
+                            if socket.send(Message::Text(payload.into())).await.is_err() { break; }
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
@@ -968,11 +1134,7 @@ async fn ws_loop(mut socket: WebSocket, state: SharedState, shipment: Option<Str
             }
             incoming = socket.recv() => {
                 match incoming {
-                    Some(Ok(Message::Ping(value))) => {
-                        if socket.send(Message::Pong(value)).await.is_err() {
-                            break;
-                        }
-                    }
+                    Some(Ok(Message::Ping(value))) => { if socket.send(Message::Pong(value)).await.is_err() { break; } }
                     Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                     Some(Ok(Message::Text(_))) | Some(Ok(Message::Binary(_))) | Some(Ok(Message::Pong(_))) => {}
                 }
@@ -986,31 +1148,25 @@ async fn shipment_stream(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Response {
-    if session_user(&headers, &state).await.is_err() {
-        return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
-    }
+    let user = match session_user(&headers, &state).await {
+        Ok(user) => user,
+        Err(error) => return error,
+    };
+    let allowed = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS(SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND s.status IN ('published','offered','accepted','in_transit','delivered'))))",
+    )
+    .bind(&id).bind(user.id).bind(&user.role).fetch_one(&state.db).await.unwrap_or(false);
+    if !allowed { return json_error(StatusCode::NOT_FOUND, "Shipment not found"); }
 
     let receiver = state.realtime.subscribe();
     let stream = BroadcastStream::new(receiver).filter_map(move |item| {
         let shipment_id = id.clone();
         match item {
-            Ok(message)
-                if message
-                    .event
-                    .as_ref()
-                    .map(|event| event.shipment_id.as_str())
-                    == Some(shipment_id.as_str()) =>
-            {
-                match Event::default().json_data(message) {
-                    Ok(event) => Some(Ok::<Event, std::convert::Infallible>(event)),
-                    Err(_) => None,
-                }
+            Ok(message) if message.event.as_ref().map(|event| event.shipment_id.as_str()) == Some(shipment_id.as_str()) => {
+                match Event::default().json_data(message) { Ok(event) => Some(Ok::<Event, std::convert::Infallible>(event)), Err(_) => None }
             }
             _ => None,
         }
     });
-
-    Sse::new(stream)
-        .keep_alive(KeepAlive::default())
-        .into_response()
+    Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
 }
