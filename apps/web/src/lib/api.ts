@@ -1,6 +1,6 @@
 import type { ApiResult, DriverAssignment, FleetVehicle, NotificationItem, Shipment, ShipmentEvent, ShipmentOffer, User } from "@/types";
 
-const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || (process.env.NODE_ENV === "development" ? "http://localhost:8080" : "https://rohbar-api.vosiev.com");
+const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 const mode = process.env.NEXT_PUBLIC_API_MODE || "live";
 
 async function request<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
