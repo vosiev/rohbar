@@ -17,13 +17,15 @@ export default function Fleet() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  async function load() {
-    const result = await api.fleet.list();
-    if (result.error) setError(result.error.message);
-    else setVehicles(result.data);
-  }
-
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    let active = true;
+    void api.fleet.list().then(result => {
+      if (!active) return;
+      if (result.error) setError(result.error.message);
+      else setVehicles(result.data);
+    });
+    return () => { active = false; };
+  }, []);
 
   async function add(event: React.FormEvent) {
     event.preventDefault();
