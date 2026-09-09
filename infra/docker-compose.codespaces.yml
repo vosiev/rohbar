@@ -8,7 +8,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - rohbar_codespaces_postgres:/var/lib/postgresql/data
+      - rohbar_codespaces_postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rohbar -d rohbar"]
       interval: 3s
