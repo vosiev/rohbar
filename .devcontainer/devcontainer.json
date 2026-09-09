@@ -8,8 +8,8 @@
     "ghcr.io/devcontainers/features/rust:1": {
       "version": "stable"
     },
-    "ghcr.io/devcontainers/features/docker-in-docker:4": {
-      "version": "latest",
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "moby": false,
       "dockerDashComposeVersion": "latest"
     }
   },
