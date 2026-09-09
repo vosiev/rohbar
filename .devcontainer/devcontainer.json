@@ -7,6 +7,10 @@
     },
     "ghcr.io/devcontainers/features/rust:1": {
       "version": "stable"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {
+      "version": "latest",
+      "dockerDashComposeVersion": "latest"
     }
   },
   "forwardPorts": [3000, 8080, 5432, 6379],
