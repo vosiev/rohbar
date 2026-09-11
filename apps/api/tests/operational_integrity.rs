@@ -28,15 +28,30 @@ async fn operational_integrity_enforces_workflow() {
     let foreign_vehicle_id = format!("VH-{}", &suffix[26..32]);
 
     for (id, email, name, role) in [
-        (customer_id, format!("customer-{suffix}@example.test"), "Customer", "customer"),
-        (carrier_id, format!("carrier-{suffix}@example.test"), "Carrier", "carrier"),
+        (
+            customer_id,
+            format!("customer-{suffix}@example.test"),
+            "Customer",
+            "customer",
+        ),
+        (
+            carrier_id,
+            format!("carrier-{suffix}@example.test"),
+            "Carrier",
+            "carrier",
+        ),
         (
             other_carrier_id,
             format!("carrier-other-{suffix}@example.test"),
             "Other Carrier",
             "carrier",
         ),
-        (driver_id, format!("driver-{suffix}@example.test"), "Driver", "driver"),
+        (
+            driver_id,
+            format!("driver-{suffix}@example.test"),
+            "Driver",
+            "driver",
+        ),
     ] {
         sqlx::query(
             "INSERT INTO users(id,email,name,password_hash,role) VALUES($1,$2,$3,'test-hash',$4)",
@@ -89,7 +104,10 @@ async fn operational_integrity_enforces_workflow() {
         .bind(&shipment_id)
         .execute(&mut *tx)
         .await;
-    assert!(premature_accept.is_err(), "shipment accepted without accepted offer");
+    assert!(
+        premature_accept.is_err(),
+        "shipment accepted without accepted offer"
+    );
 
     sqlx::query("UPDATE offers SET status='accepted' WHERE id=$1")
         .bind(&offer_id)
@@ -104,11 +122,12 @@ async fn operational_integrity_enforces_workflow() {
         .expect("shipment status query failed");
     assert_eq!(shipment_status, "accepted");
 
-    let competing_offer_status: String = sqlx::query_scalar("SELECT status FROM offers WHERE id=$1")
-        .bind(&other_offer_id)
-        .fetch_one(&mut *tx)
-        .await
-        .expect("competing offer status query failed");
+    let competing_offer_status: String =
+        sqlx::query_scalar("SELECT status FROM offers WHERE id=$1")
+            .bind(&other_offer_id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("competing offer status query failed");
     assert_eq!(competing_offer_status, "rejected");
 
     sqlx::query(
@@ -173,18 +192,23 @@ async fn operational_integrity_enforces_workflow() {
         .bind(&shipment_id)
         .execute(&mut *tx)
         .await;
-    assert!(invalid_reset.is_err(), "completed shipment must not reset to published");
+    assert!(
+        invalid_reset.is_err(),
+        "completed shipment must not reset to published"
+    );
 
-    let notification_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM notifications WHERE user_id IN ($1,$2,$3)",
-    )
-    .bind(customer_id)
-    .bind(carrier_id)
-    .bind(driver_id)
-    .fetch_one(&mut *tx)
-    .await
-    .expect("notification count query failed");
-    assert!(notification_count >= 5, "workflow should create operational notifications");
+    let notification_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM notifications WHERE user_id IN ($1,$2,$3)")
+            .bind(customer_id)
+            .bind(carrier_id)
+            .bind(driver_id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("notification count query failed");
+    assert!(
+        notification_count >= 5,
+        "workflow should create operational notifications"
+    );
 
     tx.rollback().await.expect("transaction rollback failed");
 }
