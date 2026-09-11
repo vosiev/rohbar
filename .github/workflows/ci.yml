@@ -6,45 +6,13 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  prepare:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
-      - uses: pnpm/setup@v2
-        with:
-          version: 12.3.4
-          runtime: node@26
-          install: false
-          cache: true
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: pnpm install --no-frozen-lockfile
-      - run: cargo fmt --manifest-path apps/api/Cargo.toml
-      - name: Commit generated repository updates
-        shell: bash
-        run: |
-          if git diff --quiet -- pnpm-lock.yaml apps/api; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pnpm-lock.yaml apps/api
-          git commit -m "chore(repo): normalize generated files"
-          git push
-
   web:
-    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
       - uses: pnpm/setup@v2
         with:
           version: 12.3.4
@@ -58,7 +26,6 @@ jobs:
       - run: pnpm --dir apps/web build
 
   api:
-    needs: prepare
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -90,12 +57,28 @@ jobs:
       RUSTFLAGS: -Dwarnings
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/api -> apps/api/target
       - run: rustc --version
-      - run: cargo check --manifest-path apps/api/Cargo.toml
-      - run: cargo test --manifest-path apps/api/Cargo.toml
+      - run: cargo fmt --manifest-path apps/api/Cargo.toml --check
+      - run: cargo check --manifest-path apps/api/Cargo.toml --locked
+      - run: cargo clippy --manifest-path apps/api/Cargo.toml --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --manifest-path apps/api/Cargo.toml --locked
+
+  containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate production Compose configuration
+        env:
+          POSTGRES_PASSWORD: rohbar_ci_container_password
+          FRONTEND_ORIGIN: https://rohbar.example.test
+        run: docker compose -f infra/docker-compose.yml config --quiet
+      - name: Build API production image
+        run: docker build --file apps/api/Dockerfile --tag rohbar-api:ci apps/api
+      - name: Build web production image
+        run: docker build --file apps/web/Dockerfile --tag rohbar-web:ci .
