@@ -1,0 +1,211 @@
+name: Final security hardening
+
+on:
+  push:
+    branches:
+      - feat/production-integration-v1
+    paths:
+      - .github/workflows/final-security-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feat/production-integration-v1
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply audited authorization and session fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("apps/api/src/main.rs")
+          text = path.read_text()
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '        "rohbar_session={sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800{}",',
+              '        "rohbar_session={sid}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800{}",',
+              "strict session cookie",
+          )
+
+          replace_once(
+              '''    HeaderValue::from_str(&value).expect("cookie")
+}
+pub(crate) async fn create_session(''',
+              '''    HeaderValue::from_str(&value).expect("cookie")
+}
+fn expired_session_cookie(secure: bool) -> HeaderValue {
+    let value = format!(
+        "rohbar_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0{}",
+        if secure { "; Secure" } else { "" }
+    );
+    HeaderValue::from_str(&value).expect("cookie")
+}
+pub(crate) async fn create_session(''',
+              "expired cookie helper",
+          )
+
+          replace_once(
+              '''        Err(error) => {
+            let message = if error
+                .as_database_error()
+                .is_some_and(|db_error| db_error.is_unique_violation())
+            {
+                "User already exists"
+            } else {
+                "Unable to create account"
+            };
+            json_error(StatusCode::CONFLICT, message)
+        }''',
+              '''        Err(error) => {
+            if error
+                .as_database_error()
+                .is_some_and(|db_error| db_error.is_unique_violation())
+            {
+                json_error(StatusCode::CONFLICT, "Unable to create account")
+            } else {
+                error!(%error, "registration database error");
+                json_error(StatusCode::INTERNAL_SERVER_ERROR, "Unable to create account")
+            }
+        }''',
+              "generic registration failure",
+          )
+
+          replace_once(
+              '''    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_static("rohbar_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"),
+    );''',
+              '''    response.headers_mut().insert(
+        header::SET_COOKIE,
+        expired_session_cookie(state.session_cookie_secure),
+    );''',
+              "logout cookie policy",
+          )
+
+          replace_once(
+              '''async fn session_user(headers: &HeaderMap, state: &SharedState) -> Result<User, Response> {''',
+              '''async fn can_access_shipment(
+    state: &SharedState,
+    user: &User,
+    shipment_id: &str,
+    allow_carrier_marketplace: bool,
+) -> bool {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS(SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND (($4 AND s.status IN ('published','offered')) OR EXISTS(SELECT 1 FROM offers o WHERE o.shipment_id=s.id AND o.carrier_id=$2 AND o.status='accepted')))))",
+    )
+    .bind(shipment_id)
+    .bind(user.id)
+    .bind(&user.role)
+    .bind(allow_carrier_marketplace)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(false)
+}
+
+async fn session_user(headers: &HeaderMap, state: &SharedState) -> Result<User, Response> {''',
+              "shipment access helper",
+          )
+
+          old_list = '''    let result = match user.role.as_str() { "customer" => sqlx::query_as::<_, Shipment>("SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments WHERE customer_id=$1 ORDER BY created_at DESC").bind(user.id).fetch_all(&state.db).await, "driver" => sqlx::query_as::<_, Shipment>("SELECT s.id,s.from_city,s.to_city,s.date,s.cargo,s.weight,s.vehicle,s.price,s.status,s.company FROM shipments s INNER JOIN driver_assignments da ON da.shipment_id=s.id WHERE da.driver_id=$1 ORDER BY s.created_at DESC").bind(user.id).fetch_all(&state.db).await, "carrier" | "admin" => sqlx::query_as::<_, Shipment>("SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments WHERE status IN ('published','offered','accepted','in_transit','delivered','completed') ORDER BY created_at DESC").fetch_all(&state.db).await, _ => return json_error(StatusCode::FORBIDDEN, "Invalid user role") };'''
+          new_list = '''    let result = match user.role.as_str() {
+        "customer" => sqlx::query_as::<_, Shipment>("SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments WHERE customer_id=$1 ORDER BY created_at DESC").bind(user.id).fetch_all(&state.db).await,
+        "driver" => sqlx::query_as::<_, Shipment>("SELECT s.id,s.from_city,s.to_city,s.date,s.cargo,s.weight,s.vehicle,s.price,s.status,s.company FROM shipments s INNER JOIN driver_assignments da ON da.shipment_id=s.id WHERE da.driver_id=$1 ORDER BY s.created_at DESC").bind(user.id).fetch_all(&state.db).await,
+        "carrier" => sqlx::query_as::<_, Shipment>("SELECT s.id,s.from_city,s.to_city,s.date,s.cargo,s.weight,s.vehicle,s.price,s.status,s.company FROM shipments s WHERE s.status IN ('published','offered') OR EXISTS(SELECT 1 FROM offers o WHERE o.shipment_id=s.id AND o.carrier_id=$1 AND o.status='accepted') ORDER BY s.created_at DESC").bind(user.id).fetch_all(&state.db).await,
+        "admin" => sqlx::query_as::<_, Shipment>("SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments ORDER BY created_at DESC").fetch_all(&state.db).await,
+        _ => return json_error(StatusCode::FORBIDDEN, "Invalid user role"),
+    };'''
+          replace_once(old_list, new_list, "carrier shipment listing")
+
+          replace_once(
+              '''    let result = sqlx::query_as::<_, Shipment>("SELECT s.id,s.from_city,s.to_city,s.date,s.cargo,s.weight,s.vehicle,s.price,s.status,s.company FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS (SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND s.status IN ('published','offered','accepted','in_transit','delivered','completed')))").bind(id).bind(user.id).bind(&user.role).fetch_optional(&state.db).await;''',
+              '''    if !can_access_shipment(&state, &user, &id, true).await {
+        return json_error(StatusCode::NOT_FOUND, "Shipment not found");
+    }
+    let result = sqlx::query_as::<_, Shipment>("SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments WHERE id=$1").bind(id).fetch_optional(&state.db).await;''',
+              "shipment detail authorization",
+          )
+
+          replace_once(
+              '''    let allowed = match user.role.as_str() { "admin" => true, "customer" => false, "carrier" => matches!(req.status.as_str(), "offered" | "accepted") && sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM offers o WHERE o.shipment_id=$1 AND o.carrier_id=$2)").bind(&id).bind(user.id).fetch_one(&state.db).await.unwrap_or(false), "driver" => matches!(req.status.as_str(), "in_transit" | "delivered" | "completed") && sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM driver_assignments da WHERE da.shipment_id=$1 AND da.driver_id=$2)").bind(&id).bind(user.id).fetch_one(&state.db).await.unwrap_or(false), _ => false };''',
+              '''    let allowed = match user.role.as_str() {
+        "admin" => true,
+        "driver" => matches!(req.status.as_str(), "in_transit" | "delivered" | "completed")
+            && sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM driver_assignments da WHERE da.shipment_id=$1 AND da.driver_id=$2)")
+                .bind(&id)
+                .bind(user.id)
+                .fetch_one(&state.db)
+                .await
+                .unwrap_or(false),
+        _ => false,
+    };''',
+              "status role authorization",
+          )
+
+          event_access = '''    let allowed = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS(SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND s.status IN ('published','offered','accepted','in_transit','delivered','completed'))))").bind(&id).bind(user.id).bind(&user.role).fetch_one(&state.db).await.unwrap_or(false);
+    if !allowed {
+        return json_error(StatusCode::NOT_FOUND, "Shipment not found");
+    }'''
+          private_access = '''    if !can_access_shipment(&state, &user, &id, false).await {
+        return json_error(StatusCode::NOT_FOUND, "Shipment not found");
+    }'''
+          count = text.count(event_access)
+          if count != 2:
+              raise SystemExit(f"private event/stream access: expected 2 matches, found {count}")
+          text = text.replace(event_access, private_access)
+
+          replace_once(
+              '''    if session_user(&headers, &state).await.is_err() {
+        return json_error(StatusCode::UNAUTHORIZED, "Authentication required");
+    }
+    let shipment = query.get("shipment_id").cloned();
+    upgrade.on_upgrade(move |socket| ws_loop(socket, state, shipment))''',
+              '''    let user = match session_user(&headers, &state).await {
+        Ok(user) => user,
+        Err(error) => return error,
+    };
+    let shipment_id = match query.get("shipment_id").map(String::as_str).map(str::trim) {
+        Some(value) if !value.is_empty() => value.to_owned(),
+        _ => return json_error(StatusCode::BAD_REQUEST, "shipment_id is required"),
+    };
+    if !can_access_shipment(&state, &user, &shipment_id, false).await {
+        return json_error(StatusCode::NOT_FOUND, "Shipment not found");
+    }
+    upgrade.on_upgrade(move |socket| ws_loop(socket, state, Some(shipment_id)))''',
+              "websocket authorization",
+          )
+
+          path.write_text(text)
+
+          migration = Path("apps/api/migrations/0002_operational_integrity.sql")
+          sql = migration.read_text()
+          marker = "CREATE EXTENSION IF NOT EXISTS pgcrypto;\n\n"
+          if sql.count(marker) != 1:
+              raise SystemExit("pgcrypto marker not found exactly once")
+          migration.write_text(sql.replace(marker, "", 1))
+          PY
+
+          cargo fmt --manifest-path apps/api/Cargo.toml
+
+      - name: Commit hardening and remove bootstrap workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/final-security-hardening.yml
+          git add apps/api/src/main.rs apps/api/migrations/0002_operational_integrity.sql
+          git commit -m "security(api): enforce private shipment access"
+          git push origin HEAD:feat/production-integration-v1
