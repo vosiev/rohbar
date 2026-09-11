@@ -274,8 +274,9 @@ async fn ensure_bootstrap_admin(db: &PgPool) -> Result<(), String> {
         Ok(value) if !value.is_empty() => value,
         _ => return Err("ADMIN_PASSWORD is required when ADMIN_EMAIL is configured".into()),
     };
-    if password.chars().count() < 12 {
-        return Err("ADMIN_PASSWORD must contain at least 12 characters".into());
+    let password_length = password.chars().count();
+    if !(15..=128).contains(&password_length) {
+        return Err("ADMIN_PASSWORD must contain 15 to 128 characters".into());
     }
     if let Some((_, role)) =
         sqlx::query_as::<_, (Uuid, String)>("SELECT id,role FROM users WHERE email=$1")
@@ -387,7 +388,7 @@ async fn auth_me(State(state): State<SharedState>, headers: HeaderMap) -> Respon
 }
 fn session_cookie(sid: &str, secure: bool) -> HeaderValue {
     let value = format!(
-        "rohbar_session={sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000{}",
+        "rohbar_session={sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800{}",
         if secure { "; Secure" } else { "" }
     );
     HeaderValue::from_str(&value).expect("cookie")
@@ -406,7 +407,7 @@ pub(crate) async fn create_session(
         .set_ex(
             format!("rohbar:session:{sid}"),
             user_id.to_string(),
-            2_592_000,
+            604_800,
         )
         .await
         .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Session storage failed"))?;
@@ -467,10 +468,11 @@ async fn auth_register(
     if !email.contains('@') || email.len() > 254 {
         return json_error(StatusCode::BAD_REQUEST, "Valid email is required");
     }
-    if req.password.chars().count() < 8 {
+    let password_length = req.password.chars().count();
+    if !(15..=128).contains(&password_length) {
         return json_error(
             StatusCode::BAD_REQUEST,
-            "Password must contain at least 8 characters",
+            "Password must contain 15 to 128 characters",
         );
     }
     if !valid_registration_role(role) {
@@ -547,7 +549,7 @@ async fn list_shipments(State(state): State<SharedState>, headers: HeaderMap) ->
         Ok(user) => user,
         Err(error) => return error,
     };
-    let result = match user.role.as_str() { "customer" => sqlx::query_as::<_, Shipment>("SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments WHERE customer_id=$1 ORDER BY created_at DESC").bind(user.id).fetch_all(&state.db).await, "driver" => sqlx::query_as::<_, Shipment>("SELECT s.id,s.from_city,s.to_city,s.date,s.cargo,s.weight,s.vehicle,s.price,s.status,s.company FROM shipments s INNER JOIN driver_assignments da ON da.shipment_id=s.id WHERE da.driver_id=$1 ORDER BY s.created_at DESC").bind(user.id).fetch_all(&state.db).await, "carrier" | "admin" => sqlx::query_as::<_, Shipment>("SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments WHERE status IN ('published','offered','accepted','in_transit','delivered') ORDER BY created_at DESC").fetch_all(&state.db).await, _ => return json_error(StatusCode::FORBIDDEN, "Invalid user role") };
+    let result = match user.role.as_str() { "customer" => sqlx::query_as::<_, Shipment>("SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments WHERE customer_id=$1 ORDER BY created_at DESC").bind(user.id).fetch_all(&state.db).await, "driver" => sqlx::query_as::<_, Shipment>("SELECT s.id,s.from_city,s.to_city,s.date,s.cargo,s.weight,s.vehicle,s.price,s.status,s.company FROM shipments s INNER JOIN driver_assignments da ON da.shipment_id=s.id WHERE da.driver_id=$1 ORDER BY s.created_at DESC").bind(user.id).fetch_all(&state.db).await, "carrier" | "admin" => sqlx::query_as::<_, Shipment>("SELECT id,from_city,to_city,date,cargo,weight,vehicle,price,status,company FROM shipments WHERE status IN ('published','offered','accepted','in_transit','delivered','completed') ORDER BY created_at DESC").fetch_all(&state.db).await, _ => return json_error(StatusCode::FORBIDDEN, "Invalid user role") };
     match result {
         Ok(shipments) => (StatusCode::OK, Json(json!({ "data": shipments }))).into_response(),
         Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error"),
@@ -563,7 +565,7 @@ async fn get_shipment(
         Ok(user) => user,
         Err(error) => return error,
     };
-    let result = sqlx::query_as::<_, Shipment>("SELECT s.id,s.from_city,s.to_city,s.date,s.cargo,s.weight,s.vehicle,s.price,s.status,s.company FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS (SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND s.status IN ('published','offered','accepted','in_transit','delivered')))").bind(id).bind(user.id).bind(&user.role).fetch_optional(&state.db).await;
+    let result = sqlx::query_as::<_, Shipment>("SELECT s.id,s.from_city,s.to_city,s.date,s.cargo,s.weight,s.vehicle,s.price,s.status,s.company FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS (SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND s.status IN ('published','offered','accepted','in_transit','delivered','completed')))").bind(id).bind(user.id).bind(&user.role).fetch_optional(&state.db).await;
     match result {
         Ok(Some(shipment)) => (StatusCode::OK, Json(json!({ "data": shipment }))).into_response(),
         Ok(None) => json_error(StatusCode::NOT_FOUND, "Shipment not found"),
@@ -650,7 +652,7 @@ async fn shipment_events(
         Ok(user) => user,
         Err(error) => return error,
     };
-    let allowed = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS(SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND s.status IN ('published','offered','accepted','in_transit','delivered'))))").bind(&id).bind(user.id).bind(&user.role).fetch_one(&state.db).await.unwrap_or(false);
+    let allowed = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS(SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND s.status IN ('published','offered','accepted','in_transit','delivered','completed'))))").bind(&id).bind(user.id).bind(&user.role).fetch_one(&state.db).await.unwrap_or(false);
     if !allowed {
         return json_error(StatusCode::NOT_FOUND, "Shipment not found");
     }
@@ -994,7 +996,7 @@ async fn shipment_stream(
         Ok(user) => user,
         Err(error) => return error,
     };
-    let allowed = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS(SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND s.status IN ('published','offered','accepted','in_transit','delivered'))))").bind(&id).bind(user.id).bind(&user.role).fetch_one(&state.db).await.unwrap_or(false);
+    let allowed = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM shipments s WHERE s.id=$1 AND (s.customer_id=$2 OR $3='admin' OR ($3='driver' AND EXISTS(SELECT 1 FROM driver_assignments da WHERE da.shipment_id=s.id AND da.driver_id=$2)) OR ($3='carrier' AND s.status IN ('published','offered','accepted','in_transit','delivered','completed'))))").bind(&id).bind(user.id).bind(&user.role).fetch_one(&state.db).await.unwrap_or(false);
     if !allowed {
         return json_error(StatusCode::NOT_FOUND, "Shipment not found");
     }
