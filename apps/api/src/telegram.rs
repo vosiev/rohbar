@@ -86,6 +86,8 @@ pub async fn webhook(
     (StatusCode::OK, Json(json!({"ok":true})))
 }
 
+// Axum Response is intentionally propagated unchanged to preserve the exact HTTP error.
+#[allow(clippy::result_large_err)]
 pub async fn authenticate(
     state: &SharedState,
     init_data: String,

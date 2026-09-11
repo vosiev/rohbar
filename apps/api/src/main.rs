@@ -337,6 +337,8 @@ fn valid_registration_role(role: &str) -> bool {
 fn has_role(user: &User, roles: &[&str]) -> bool {
     roles.iter().any(|role| *role == user.role)
 }
+// Axum Response is intentionally propagated unchanged to preserve the exact HTTP error.
+#[allow(clippy::result_large_err)]
 async fn require_role(
     headers: &HeaderMap,
     state: &SharedState,
@@ -371,6 +373,8 @@ async fn can_access_shipment(
     .unwrap_or(false)
 }
 
+// Axum Response is intentionally propagated unchanged to preserve the exact HTTP error.
+#[allow(clippy::result_large_err)]
 async fn session_user(headers: &HeaderMap, state: &SharedState) -> Result<User, Response> {
     let cookie = headers
         .get(header::COOKIE)
@@ -418,6 +422,8 @@ fn expired_session_cookie(secure: bool) -> HeaderValue {
     );
     HeaderValue::from_str(&value).expect("cookie")
 }
+// Axum Response is intentionally propagated unchanged to preserve the exact HTTP error.
+#[allow(clippy::result_large_err)]
 pub(crate) async fn create_session(
     state: &SharedState,
     user_id: Uuid,
@@ -546,10 +552,9 @@ async fn auth_logout(State(state): State<SharedState>, headers: HeaderMap) -> Re
             v.split(';')
                 .find_map(|p| p.trim().strip_prefix("rohbar_session="))
         })
+        && let Ok(mut connection) = state.redis.get_multiplexed_async_connection().await
     {
-        if let Ok(mut connection) = state.redis.get_multiplexed_async_connection().await {
-            let _: Result<(), _> = connection.del(format!("rohbar:session:{cookie}")).await;
-        }
+        let _: Result<(), _> = connection.del(format!("rohbar:session:{cookie}")).await;
     }
     let mut response = (StatusCode::OK, Json(json!({ "data": { "ok": true } }))).into_response();
     response.headers_mut().insert(
