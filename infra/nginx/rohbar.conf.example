@@ -6,7 +6,7 @@ map $http_upgrade $connection_upgrade {
 server {
     listen 80;
     listen [::]:80;
-    server_name rohbar.vosiev.com;
+    server_name rohbar.vosiev.com rohbar-api.vosiev.com;
 
     location /.well-known/acme-challenge/ {
         root /var/www/html;
