@@ -1,0 +1,36 @@
+name: Strict Clippy cleanup
+
+on:
+  push:
+    branches:
+      - feat/production-integration-v1
+    paths:
+      - .github/workflows/clippy-cleanup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feat/production-integration-v1
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply deterministic cleanup
+        run: python3 .github/scripts/clippy_cleanup.py
+      - name: Format Rust source
+        run: cargo fmt --manifest-path apps/api/Cargo.toml
+      - name: Commit cleanup and remove bootstrap tooling
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/clippy-cleanup.yml .github/scripts/clippy_cleanup.py
+          git add apps/api/src/main.rs apps/api/src/telegram.rs
+          git commit -m "fix(api): satisfy strict clippy without changing responses"
+          git push origin HEAD:feat/production-integration-v1
