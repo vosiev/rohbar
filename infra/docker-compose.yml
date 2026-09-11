@@ -5,19 +5,20 @@ services:
     environment:
       POSTGRES_DB: rohbar
       POSTGRES_USER: rohbar
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
-      - rohbar_postgres:/var/lib/postgresql/data
+      - rohbar_postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rohbar -d rohbar"]
       interval: 5s
       timeout: 5s
       retries: 20
+      start_period: 10s
 
   redis:
     image: redis:8-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     volumes:
       - rohbar_redis:/data
     healthcheck:
@@ -25,6 +26,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 5s
 
   api:
     build:
@@ -36,17 +38,34 @@ services:
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://rohbar:${POSTGRES_PASSWORD}@postgres:5432/rohbar
+      DATABASE_URL: postgresql://rohbar:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/rohbar
       REDIS_URL: redis://redis:6379
       BIND_ADDR: 0.0.0.0:8080
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?FRONTEND_ORIGIN is required}
       SESSION_COOKIE_SECURE: "true"
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
-      AUTOMATION_SECRET: ${AUTOMATION_SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      AUTOMATION_SECRET: ${AUTOMATION_SECRET:-}
       RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "127.0.0.1:8080:8080"
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    ports:
+      - "127.0.0.1:3000:3000"
 
 volumes:
   rohbar_postgres:
