@@ -12,10 +12,13 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
   const [offers, setOffers] = useState<ShipmentOffer[]>([]);
   const [assignment, setAssignment] = useState<DriverAssignment | null>(null);
   const [fleet, setFleet] = useState<FleetVehicle[]>([]);
+  const [offerPrice, setOfferPrice] = useState("");
+  const [offerEta, setOfferEta] = useState("");
+  const [offerVehicle, setOfferVehicle] = useState("");
   const [driverId, setDriverId] = useState("");
   const [vehicleId, setVehicleId] = useState("");
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"offer" | "driver" | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -47,11 +50,32 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
     () => offers.find((offer) => offer.status === "accepted"),
     [offers],
   );
+  const ownOffer = offers[0] || null;
+
+  async function createOffer(event: React.FormEvent) {
+    event.preventDefault();
+    if (!id || busy) return;
+    setBusy("offer");
+    setError("");
+    const result = await api.offers.create(id, {
+      price: offerPrice.trim(),
+      eta: offerEta.trim(),
+      vehicle: offerVehicle,
+    });
+    if (result.error) {
+      setError(result.error.message);
+    } else {
+      setOffers([result.data]);
+      const shipmentResult = await api.shipments.get(id);
+      if (!shipmentResult.error) setShipment(shipmentResult.data);
+    }
+    setBusy(null);
+  }
 
   async function assign(event: React.FormEvent) {
     event.preventDefault();
     if (!id || busy || !driverId.trim()) return;
-    setBusy(true);
+    setBusy("driver");
     setError("");
     const result = await api.drivers.assign(id, {
       driverId: driverId.trim(),
@@ -59,7 +83,7 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
     });
     if (result.error) setError(result.error.message);
     else setAssignment(result.data);
-    setBusy(false);
+    setBusy(null);
   }
 
   if (loading) {
@@ -76,11 +100,15 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
         <Card>
           <h1 className="text-xl font-black">Рейс недоступен</h1>
           <p className="mt-2 text-sm text-slate-500">{error || "Перевозка не найдена."}</p>
-          <Button href="/carrier/shipments" variant="secondary" className="mt-5">К перевозкам</Button>
+          <Button href="/carrier/shipments" variant="secondary" className="mt-5">
+            К перевозкам
+          </Button>
         </Card>
       </div>
     );
   }
+
+  const canOffer = !ownOffer && ["published", "offered"].includes(shipment.status);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -115,9 +143,76 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
               <Metric label="Дата" value={shipment.date} />
               <Metric label="Транспорт" value={shipment.vehicle} />
-              <Metric label="Стоимость" value={shipment.price} />
+              <Metric label="Бюджет" value={shipment.price} />
             </div>
           </Card>
+
+          {canOffer && (
+            <Card>
+              <h2 className="text-lg font-black">Предложить перевозку</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Укажите стоимость, срок и автомобиль из вашего автопарка.
+              </p>
+              {fleet.length ? (
+                <form onSubmit={createOffer} className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <Field label="Стоимость" required>
+                    <input
+                      className={inputClass}
+                      required
+                      value={offerPrice}
+                      onChange={(event) => setOfferPrice(event.target.value)}
+                      placeholder="80 000 ₽"
+                    />
+                  </Field>
+                  <Field label="Срок доставки" required>
+                    <input
+                      className={inputClass}
+                      required
+                      value={offerEta}
+                      onChange={(event) => setOfferEta(event.target.value)}
+                      placeholder="1 день"
+                    />
+                  </Field>
+                  <div className="sm:col-span-2">
+                    <Field label="Автомобиль" required>
+                      <select
+                        className={inputClass}
+                        required
+                        value={offerVehicle}
+                        onChange={(event) => setOfferVehicle(event.target.value)}
+                      >
+                        <option value="">Выберите транспорт</option>
+                        {fleet
+                          .filter((vehicle) => vehicle.status === "available")
+                          .map((vehicle) => {
+                            const value = `${vehicle.plate} · ${vehicle.model} · ${vehicle.body}`;
+                            return (
+                              <option key={vehicle.id} value={value}>
+                                {value}
+                              </option>
+                            );
+                          })}
+                      </select>
+                    </Field>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Button type="submit" disabled={busy !== null || !offerVehicle}>
+                      {busy === "offer" ? "Отправка…" : "Отправить предложение"}
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <div className="mt-5">
+                  <p className="text-sm text-slate-500">
+                    Для предложения сначала добавьте транспорт в автопарк.
+                  </p>
+                  <Button href="/fleet" variant="secondary" className="mt-4">
+                    Открыть автопарк
+                  </Button>
+                </div>
+              )}
+            </Card>
+          )}
 
           <Card>
             <h2 className="text-lg font-black">Назначение водителя</h2>
@@ -144,7 +239,7 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
             ) : accepted ? (
               <form onSubmit={assign} className="mt-5 space-y-4">
                 <p className="text-sm text-slate-500">
-                  Укажите ID зарегистрированного аккаунта водителя. Водитель видит свой ID в профиле RohBar.
+                  Укажите ID зарегистрированного водителя. Водитель видит его в своём профиле RohBar.
                 </p>
                 <Field label="ID водителя" required>
                   <input
@@ -166,13 +261,13 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
                     ))}
                   </select>
                 </Field>
-                <Button type="submit" disabled={busy}>
-                  {busy ? "Назначение…" : "Назначить водителя"}
+                <Button type="submit" disabled={busy !== null}>
+                  {busy === "driver" ? "Назначение…" : "Назначить водителя"}
                 </Button>
               </form>
             ) : (
               <p className="mt-4 text-sm text-slate-500">
-                Назначить водителя можно после того, как ваше предложение будет принято заказчиком.
+                Назначить водителя можно после принятия вашего предложения заказчиком.
               </p>
             )}
           </Card>
@@ -181,22 +276,22 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
         <aside className="space-y-6">
           <Card>
             <h2 className="font-black">Ваше предложение</h2>
-            {accepted ? (
+            {ownOffer ? (
               <div className="mt-4">
-                <StatusBadge status="accepted" />
-                <p className="mt-3 text-lg font-black">{accepted.carrierName}</p>
-                <p className="mt-1 text-sm text-slate-500">{accepted.vehicle}</p>
-                <p className="mt-4 text-2xl font-black">{accepted.price}</p>
-                <p className="mt-1 text-sm text-slate-500">Срок: {accepted.eta}</p>
+                <OfferState status={ownOffer.status} />
+                <p className="mt-3 text-lg font-black">{ownOffer.carrierName}</p>
+                <p className="mt-1 text-sm text-slate-500">{ownOffer.vehicle}</p>
+                <p className="mt-4 text-2xl font-black">{ownOffer.price}</p>
+                <p className="mt-1 text-sm text-slate-500">Срок: {ownOffer.eta}</p>
               </div>
             ) : (
-              <p className="mt-3 text-sm text-slate-500">Принятое предложение ещё не найдено.</p>
+              <p className="mt-3 text-sm text-slate-500">Вы ещё не отправляли предложение.</p>
             )}
           </Card>
           <Card>
             <h2 className="font-black">Состояние</h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Все изменения рейса сохраняются в backend RohBar и доступны участникам согласно их роли.
+              Заявка, предложение и назначение синхронизируются через backend RohBar.
             </p>
           </Card>
         </aside>
@@ -212,4 +307,15 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="mt-1 font-bold">{value}</p>
     </div>
   );
+}
+
+function OfferState({ status }: { status: ShipmentOffer["status"] }) {
+  const classes =
+    status === "accepted"
+      ? "bg-emerald-50 text-emerald-700"
+      : status === "rejected"
+        ? "bg-red-50 text-red-700"
+        : "bg-amber-50 text-amber-700";
+  const label = status === "accepted" ? "Принято" : status === "rejected" ? "Отклонено" : "Ожидает решения";
+  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${classes}`}>{label}</span>;
 }
