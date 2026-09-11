@@ -100,6 +100,10 @@ async fn operational_integrity_enforces_workflow() {
         .await
         .expect("published to offered transition should succeed");
 
+    sqlx::query("SAVEPOINT premature_accept")
+        .execute(&mut *tx)
+        .await
+        .expect("savepoint failed");
     let premature_accept = sqlx::query("UPDATE shipments SET status='accepted' WHERE id=$1")
         .bind(&shipment_id)
         .execute(&mut *tx)
@@ -108,6 +112,10 @@ async fn operational_integrity_enforces_workflow() {
         premature_accept.is_err(),
         "shipment accepted without accepted offer"
     );
+    sqlx::query("ROLLBACK TO SAVEPOINT premature_accept")
+        .execute(&mut *tx)
+        .await
+        .expect("savepoint rollback failed");
 
     sqlx::query("UPDATE offers SET status='accepted' WHERE id=$1")
         .bind(&offer_id)
@@ -148,6 +156,10 @@ async fn operational_integrity_enforces_workflow() {
     .await
     .expect("foreign vehicle insert failed");
 
+    sqlx::query("SAVEPOINT invalid_assignment")
+        .execute(&mut *tx)
+        .await
+        .expect("savepoint failed");
     let invalid_assignment = sqlx::query(
         "INSERT INTO driver_assignments(shipment_id,driver_id,driver_name,vehicle_id) VALUES($1,$2,'Driver',$3)",
     )
@@ -160,6 +172,10 @@ async fn operational_integrity_enforces_workflow() {
         invalid_assignment.is_err(),
         "assignment must reject a vehicle owned by another carrier"
     );
+    sqlx::query("ROLLBACK TO SAVEPOINT invalid_assignment")
+        .execute(&mut *tx)
+        .await
+        .expect("savepoint rollback failed");
 
     sqlx::query(
         "INSERT INTO driver_assignments(shipment_id,driver_id,driver_name,vehicle_id) VALUES($1,$2,'Driver',$3)",
@@ -188,6 +204,10 @@ async fn operational_integrity_enforces_workflow() {
             .unwrap_or_else(|error| panic!("transition to {status} failed: {error}"));
     }
 
+    sqlx::query("SAVEPOINT invalid_reset")
+        .execute(&mut *tx)
+        .await
+        .expect("savepoint failed");
     let invalid_reset = sqlx::query("UPDATE shipments SET status='published' WHERE id=$1")
         .bind(&shipment_id)
         .execute(&mut *tx)
@@ -196,6 +216,10 @@ async fn operational_integrity_enforces_workflow() {
         invalid_reset.is_err(),
         "completed shipment must not reset to published"
     );
+    sqlx::query("ROLLBACK TO SAVEPOINT invalid_reset")
+        .execute(&mut *tx)
+        .await
+        .expect("savepoint rollback failed");
 
     let notification_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM notifications WHERE user_id IN ($1,$2,$3)")
