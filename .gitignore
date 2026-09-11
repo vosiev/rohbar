@@ -1,4 +1,14 @@
 node_modules
+.next
+*.log
+
+# Local environment and secrets
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
 
 # Rust build artifacts
 apps/api/target/
