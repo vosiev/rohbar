@@ -1,0 +1,11 @@
+.git
+.github
+.devcontainer
+**/.next
+**/node_modules
+**/target
+**/*.log
+.env
+.env.*
+!.env.example
+.DS_Store
