@@ -1,13 +1,90 @@
 export type Locale = "ru" | "tg";
 export type Role = "customer" | "carrier" | "driver" | "admin";
-export type ShipmentStatus = "published" | "offered" | "accepted" | "in_transit" | "delivered" | "completed";
+export type ShipmentStatus =
+  | "published"
+  | "offered"
+  | "accepted"
+  | "in_transit"
+  | "delivered"
+  | "completed";
 export type OfferStatus = "pending" | "accepted" | "rejected";
 export type VehicleStatus = "available" | "assigned" | "maintenance";
-export type Shipment = { id:string; from:string; to:string; date:string; cargo:string; weight:string; vehicle:string; price:string; status:ShipmentStatus; company:string };
-export type User = { id:string; name:string; role:Role; phone?:string; avatar?:string };
-export type ShipmentOffer = { id:string; shipmentId:string; carrierId:string; carrierName:string; vehicle:string; price:number; etaDays:number; status:OfferStatus };
-export type FleetVehicle = { id:string; plate:string; model:string; body:string; capacity:string; volume:string; status:VehicleStatus; driverName?:string };
-export type DriverAssignment = { shipmentId:string; driverId:string; driverName:string; phone:string; vehicleId:string; vehiclePlate:string };
-export type NotificationItem = { id:string; title:string; text:string; createdAt:string; read:boolean; type:"offer"|"shipment"|"document"|"system" };
-export type ShipmentEvent = { id:string; shipmentId:string; event:string; occurredAt:string; actorId:string; payload:Record<string,unknown> };
-export type ApiResult<T> = { data:T; error:null } | { data:null; error:{ code:string; message:string } };
+
+export type Shipment = {
+  id: string;
+  from: string;
+  to: string;
+  date: string;
+  cargo: string;
+  weight: string;
+  vehicle: string;
+  price: string;
+  status: ShipmentStatus;
+  company: string;
+};
+
+export type User = {
+  id: string;
+  name: string;
+  role: Role;
+  phone?: string | null;
+};
+
+export type ShipmentOffer = {
+  id: string;
+  shipmentId: string;
+  carrierId: string;
+  carrierName: string;
+  vehicle: string;
+  price: string;
+  eta: string;
+  status: OfferStatus;
+};
+
+export type FleetVehicle = {
+  id: string;
+  plate: string;
+  model: string;
+  body: string;
+  capacity: string;
+  volume: string;
+  status: VehicleStatus;
+  driverName?: string | null;
+};
+
+export type DriverAssignment = {
+  shipmentId: string;
+  driverId: string;
+  driverName: string;
+  phone?: string | null;
+  vehicleId?: string | null;
+  vehiclePlate?: string | null;
+};
+
+export type NotificationItem = {
+  id: string;
+  title: string;
+  text: string;
+  createdAt: string;
+  read: boolean;
+  type: "offer" | "shipment" | "document" | "system";
+};
+
+export type ShipmentEvent = {
+  id: string;
+  shipmentId: string;
+  event: string;
+  occurredAt: string;
+  actorId: string;
+  payload: Record<string, unknown>;
+};
+
+export type HealthStatus = {
+  status: "ok" | "degraded";
+  database: boolean;
+  redis: boolean;
+};
+
+export type ApiResult<T> =
+  | { data: T; error: null }
+  | { data: null; error: { code: string; message: string } };
