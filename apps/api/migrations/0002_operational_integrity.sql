@@ -1,5 +1,3 @@
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
 ALTER TABLE shipments
     ADD CONSTRAINT shipments_status_check
     CHECK (status IN ('published', 'offered', 'accepted', 'in_transit', 'delivered', 'completed'));
