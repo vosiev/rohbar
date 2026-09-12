@@ -21,6 +21,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/patches/fleet-booking.patch.gz.b64')
+          data = bytearray(path.read_bytes())
+          assert len(data) == 51556
+          assert data[888] == ord('e')
+          data[888] = ord('i')
+          path.write_bytes(data)
+          PY
           base64 -d .github/patches/fleet-booking.patch.gz.b64 | gzip -d > /tmp/feature.patch
           echo "ca88aa55c7f73a83ae330698e9e3011e7f9cb0d06349c2c9f4efafe70d4eacc8  /tmp/feature.patch" | sha256sum -c -
           git apply --check /tmp/feature.patch
