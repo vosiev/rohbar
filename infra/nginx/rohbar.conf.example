@@ -27,6 +27,13 @@ server {
 
     include /etc/nginx/rohbar-cloudflare-realip.conf;
 
+    # A trusted Cloudflare edge rewrites $remote_addr while $realip_remote_addr
+    # retains the edge address. If both are equal, the request reached the
+    # origin directly (or without a valid Cloudflare client-address header).
+    if ($remote_addr = $realip_remote_addr) {
+        return 444;
+    }
+
     ssl_certificate /etc/letsencrypt/live/rohbar.vosiev.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/rohbar.vosiev.com/privkey.pem;
 
@@ -68,6 +75,11 @@ server {
     server_name rohbar-api.vosiev.com;
 
     include /etc/nginx/rohbar-cloudflare-realip.conf;
+
+    # Same Cloudflare-only origin gate as the web vhost above.
+    if ($remote_addr = $realip_remote_addr) {
+        return 444;
+    }
 
     ssl_certificate /etc/letsencrypt/live/rohbar-api.vosiev.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/rohbar-api.vosiev.com/privkey.pem;
