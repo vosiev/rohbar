@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, Truck, UserRound } from "lucide-react";
 import { Button, Card, Field, PageHeader, StatusBadge, inputClass } from "@/components/rohbar-ui";
 import { api } from "@/lib/api";
-import type { DriverAssignment, FleetVehicle, Shipment, ShipmentOffer } from "@/types";
+import { formatVolumeLiters, formatWeightKg } from "@/lib/vehicles";
+import type { DriverAssignment, FleetVehicle, Shipment, ShipmentOffer, TeamDriver } from "@/types";
 
 export default function CarrierShipmentPage({ params }: { params: Promise<{ id: string }> }) {
   const [id, setId] = useState("");
@@ -12,6 +13,7 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
   const [offers, setOffers] = useState<ShipmentOffer[]>([]);
   const [assignment, setAssignment] = useState<DriverAssignment | null>(null);
   const [fleet, setFleet] = useState<FleetVehicle[]>([]);
+  const [team, setTeam] = useState<TeamDriver[]>([]);
   const [offerPrice, setOfferPrice] = useState("");
   const [offerEta, setOfferEta] = useState("");
   const [offerVehicle, setOfferVehicle] = useState("");
@@ -24,11 +26,12 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
   useEffect(() => {
     let active = true;
     void params.then(async ({ id: shipmentId }) => {
-      const [shipmentResult, offersResult, assignmentsResult, fleetResult] = await Promise.all([
+      const [shipmentResult, offersResult, assignmentsResult, fleetResult, teamResult] = await Promise.all([
         api.shipments.get(shipmentId),
         api.offers.list(shipmentId),
         api.drivers.assignments(),
         api.fleet.list(),
+        api.drivers.team(),
       ]);
       if (!active) return;
       setId(shipmentId);
@@ -39,6 +42,7 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
         setAssignment(assignmentsResult.data.find((item) => item.shipmentId === shipmentId) || null);
       }
       if (!fleetResult.error) setFleet(fleetResult.data);
+      if (!teamResult.error) setTeam(teamResult.data);
       setLoading(false);
     });
     return () => {
@@ -60,7 +64,7 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
     const result = await api.offers.create(id, {
       price: offerPrice.trim(),
       eta: offerEta.trim(),
-      vehicle: offerVehicle,
+      vehicleId: offerVehicle,
     });
     if (result.error) {
       setError(result.error.message);
@@ -184,14 +188,12 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
                         <option value="">Выберите транспорт</option>
                         {fleet
                           .filter((vehicle) => vehicle.status === "available")
-                          .map((vehicle) => {
-                            const value = `${vehicle.plate} · ${vehicle.model} · ${vehicle.body}`;
-                            return (
-                              <option key={vehicle.id} value={value}>
-                                {value}
-                              </option>
-                            );
-                          })}
+                          .filter((vehicle) => !shipment.selectedVehicleId || vehicle.id === shipment.selectedVehicleId)
+                          .map((vehicle) => (
+                            <option key={vehicle.id} value={vehicle.id}>
+                              {vehicle.plate} · {vehicle.model} · {vehicle.body} · {formatWeightKg(vehicle.capacityKg)} · {formatVolumeLiters(vehicle.volumeLiters)}
+                            </option>
+                          ))}
                       </select>
                     </Field>
                   </div>
@@ -239,26 +241,28 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
             ) : accepted ? (
               <form onSubmit={assign} className="mt-5 space-y-4">
                 <p className="text-sm text-slate-500">
-                  Укажите ID зарегистрированного водителя. Водитель видит его в своём профиле RohBar.
+                  Выберите свободного водителя из вашей команды. Состав команды управляется в разделе «Автопарк».
                 </p>
-                <Field label="ID водителя" required>
-                  <input
-                    className={inputClass}
-                    required
-                    value={driverId}
-                    onChange={(event) => setDriverId(event.target.value)}
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    autoComplete="off"
-                  />
+                <Field label="Водитель" required>
+                  <select className={inputClass} required value={driverId} onChange={(event) => setDriverId(event.target.value)}>
+                    <option value="">Выберите свободного водителя</option>
+                    {team.filter((driver) => !driver.busy).map((driver) => (
+                      <option key={driver.id} value={driver.id}>
+                        {driver.name}{driver.phone ? ` · ${driver.phone}` : ""}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="Автомобиль">
                   <select className={inputClass} value={vehicleId} onChange={(event) => setVehicleId(event.target.value)}>
                     <option value="">Без автомобиля</option>
-                    {fleet.map((vehicle) => (
-                      <option key={vehicle.id} value={vehicle.id}>
-                        {vehicle.plate} · {vehicle.model}
-                      </option>
-                    ))}
+                    {fleet
+                      .filter((vehicle) => !accepted?.vehicleId || vehicle.id === accepted.vehicleId)
+                      .map((vehicle) => (
+                        <option key={vehicle.id} value={vehicle.id}>
+                          {vehicle.plate} · {vehicle.model}
+                        </option>
+                      ))}
                   </select>
                 </Field>
                 <Button type="submit" disabled={busy !== null}>

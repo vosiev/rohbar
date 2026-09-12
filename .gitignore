@@ -12,3 +12,6 @@ node_modules
 
 # Rust build artifacts
 apps/api/target/
+
+# TypeScript incremental build metadata
+*.tsbuildinfo

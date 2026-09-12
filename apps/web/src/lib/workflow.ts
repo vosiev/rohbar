@@ -9,6 +9,7 @@ const transitions: Record<ShipmentStatus, Partial<Record<WorkflowAction, Shipmen
   in_transit: { mark_delivered: "delivered" },
   delivered: { complete: "completed" },
   completed: {},
+  cancelled: {},
 };
 
 const permissions: Record<Role, WorkflowAction[]> = {

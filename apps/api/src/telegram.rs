@@ -183,7 +183,7 @@ pub async fn authenticate(
         .to_string();
 
     let user = sqlx::query_as::<_, User>(
-        "INSERT INTO users(id,email,name,password_hash,role,telegram_id) VALUES($1,$2,$3,$4,'customer',$5) ON CONFLICT (telegram_id) DO UPDATE SET name=EXCLUDED.name RETURNING id,name,role,phone,telegram_id",
+        "INSERT INTO users(id,email,name,password_hash,role,telegram_id) VALUES($1,$2,$3,$4,'customer',$5) ON CONFLICT (telegram_id) DO UPDATE SET name=EXCLUDED.name RETURNING id,email,name,role,phone,telegram_id",
     )
     .bind(uuid::Uuid::new_v4())
     .bind(email)

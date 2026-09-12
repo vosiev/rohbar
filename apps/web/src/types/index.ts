@@ -6,10 +6,27 @@ export type ShipmentStatus =
   | "accepted"
   | "in_transit"
   | "delivered"
-  | "completed";
+  | "completed"
+  | "cancelled";
 export type OfferStatus = "pending" | "accepted" | "rejected";
 export type VehicleStatus = "available" | "assigned" | "maintenance";
+export type VehicleBodyCode =
+  | "curtain"
+  | "box"
+  | "reefer"
+  | "isotherm"
+  | "flatbed"
+  | "lowbed"
+  | "container"
+  | "van";
 
+export type User = {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  phone?: string | null;
+};
 export type Shipment = {
   id: string;
   from: string;
@@ -17,17 +34,16 @@ export type Shipment = {
   date: string;
   cargo: string;
   weight: string;
+  weightKg?: number | null;
+  volumeLiters?: number | null;
+  volumeEstimated: boolean;
+  requestedBodyCode?: VehicleBodyCode | null;
   vehicle: string;
+  selectedVehicleId?: string | null;
+  selectedCarrierId?: string | null;
   price: string;
   status: ShipmentStatus;
   company: string;
-};
-
-export type User = {
-  id: string;
-  name: string;
-  role: Role;
-  phone?: string | null;
 };
 
 export type ShipmentOffer = {
@@ -36,20 +52,62 @@ export type ShipmentOffer = {
   carrierId: string;
   carrierName: string;
   vehicle: string;
+  vehicleId?: string | null;
   price: string;
   eta: string;
   status: OfferStatus;
 };
-
 export type FleetVehicle = {
   id: string;
+  ownerId: string;
+  ownerName: string;
   plate: string;
   model: string;
   body: string;
+  bodyCode?: VehicleBodyCode | null;
   capacity: string;
+  capacityKg?: number | null;
   volume: string;
+  volumeLiters?: number | null;
+  lengthMm?: number | null;
+  widthMm?: number | null;
+  heightMm?: number | null;
+  year?: number | null;
+  photoUrl?: string | null;
   status: VehicleStatus;
   driverName?: string | null;
+};
+
+export type AvailableVehicle = {
+  id: string;
+  carrierId: string;
+  carrierName: string;
+  plate: string;
+  model: string;
+  body: string;
+  bodyCode?: VehicleBodyCode | null;
+  capacityKg: number;
+  volumeLiters?: number | null;
+  lengthMm?: number | null;
+  widthMm?: number | null;
+  heightMm?: number | null;
+  year?: number | null;
+  photoUrl?: string | null;
+  status: VehicleStatus;
+  reservedWeightKg: number;
+  reservedVolumeLiters: number;
+  remainingWeightKg: number;
+  remainingVolumeLiters?: number | null;
+  pendingReservations: number;
+};
+
+export type TeamDriver = {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  busy: boolean;
+  currentShipmentId?: string | null;
 };
 
 export type DriverAssignment = {

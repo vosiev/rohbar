@@ -156,6 +156,15 @@ async fn operational_integrity_enforces_workflow() {
     .await
     .expect("foreign vehicle insert failed");
 
+    sqlx::query(
+        "INSERT INTO carrier_driver_memberships(carrier_id,driver_id,status) VALUES($1,$2,'active')",
+    )
+    .bind(carrier_id)
+    .bind(driver_id)
+    .execute(&mut *tx)
+    .await
+    .expect("driver membership insert failed");
+
     sqlx::query("SAVEPOINT invalid_assignment")
         .execute(&mut *tx)
         .await

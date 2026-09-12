@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 200" role="img" aria-label="МАЛОТОННАЖНЫЙ">
+<rect width="360" height="200" rx="24" fill="#f8fafc"/>
+<g fill="#0f766e" color="#0f766e"><path d="M76 72h142v58H76z"/><path d="M218 88h44l28 30v12h-72z"/><rect x="232" y="94" width="25" height="19" rx="2" fill="white" opacity=".65"/>
+<path d="M38 95h54v35H38z"/><path d="M38 95l18-24h36v24z"/><rect x="53" y="77" width="25" height="15" rx="2" fill="white" opacity=".7"/>
+<circle cx="75" cy="137" r="14" fill="#0f172a"/><circle cx="75" cy="137" r="6" fill="#cbd5e1"/><circle cx="255" cy="137" r="14" fill="#0f172a"/><circle cx="255" cy="137" r="6" fill="#cbd5e1"/></g>
+<text x="180" y="178" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#334155">МАЛОТОННАЖНЫЙ</text>
+</svg>
