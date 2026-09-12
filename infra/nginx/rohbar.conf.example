@@ -8,6 +8,8 @@ server {
     listen [::]:80;
     server_name rohbar.vosiev.com rohbar-api.vosiev.com;
 
+    include /etc/nginx/snippets/rohbar-cloudflare-realip.conf;
+
     location /.well-known/acme-challenge/ {
         root /var/www/html;
     }
@@ -22,6 +24,8 @@ server {
     listen [::]:443 ssl;
     http2 on;
     server_name rohbar.vosiev.com;
+
+    include /etc/nginx/snippets/rohbar-cloudflare-realip.conf;
 
     ssl_certificate /etc/letsencrypt/live/rohbar.vosiev.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/rohbar.vosiev.com/privkey.pem;
@@ -62,6 +66,8 @@ server {
     listen [::]:443 ssl;
     http2 on;
     server_name rohbar-api.vosiev.com;
+
+    include /etc/nginx/snippets/rohbar-cloudflare-realip.conf;
 
     ssl_certificate /etc/letsencrypt/live/rohbar-api.vosiev.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/rohbar-api.vosiev.com/privkey.pem;
