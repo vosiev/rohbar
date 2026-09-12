@@ -1,4 +1,4 @@
-import type { Role, User } from "@/types";
+import type { Role } from "@/types";
 
 const KEY = "rohbar-role";
 
@@ -13,9 +13,10 @@ export function setStoredRole(role: Role) {
 }
 
 export function roleLabel(role: Role) {
-  return ({ customer: "Заказчик", carrier: "Перевозчик", driver: "Водитель", admin: "Администратор" } satisfies Record<Role, string>)[role];
-}
-
-export function roleUser(role: Role): User {
-  return { id: `local-${role}`, name: roleLabel(role), role };
+  return ({
+    customer: "Заказчик",
+    carrier: "Перевозчик",
+    driver: "Водитель",
+    admin: "Администратор",
+  } satisfies Record<Role, string>)[role];
 }

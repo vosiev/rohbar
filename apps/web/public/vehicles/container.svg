@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 200" role="img" aria-label="КОНТЕЙНЕРОВОЗ">
+<rect width="360" height="200" rx="24" fill="#f8fafc"/>
+<g fill="#475569" color="#475569"><rect x="100" y="54" width="178" height="74" rx="3"/><path d="M122 58v66M146 58v66M170 58v66M194 58v66M218 58v66M242 58v66" opacity=".22"/>
+<path d="M38 95h54v35H38z"/><path d="M38 95l18-24h36v24z"/><rect x="53" y="77" width="25" height="15" rx="2" fill="white" opacity=".7"/>
+<circle cx="75" cy="137" r="14" fill="#0f172a"/><circle cx="75" cy="137" r="6" fill="#cbd5e1"/><circle cx="255" cy="137" r="14" fill="#0f172a"/><circle cx="255" cy="137" r="6" fill="#cbd5e1"/></g>
+<text x="180" y="178" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#334155">КОНТЕЙНЕРОВОЗ</text>
+</svg>

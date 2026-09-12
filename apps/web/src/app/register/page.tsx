@@ -49,8 +49,12 @@ export default function RegisterPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setBusy(true);
     setError("");
+    if (password.length < 15) {
+      setError("Пароль должен содержать минимум 15 символов.");
+      return;
+    }
+    setBusy(true);
     const result = await api.auth.register({
       name: name.trim(),
       email: email.trim(),
@@ -147,7 +151,11 @@ export default function RegisterPage() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="Минимум 15 символов"
+                aria-describedby="password-help"
               />
+              <p id="password-help" className="mt-2 text-xs leading-5 text-slate-500">
+                Минимум 15 символов. Кнопка покажет ошибку, если пароль слишком короткий.
+              </p>
             </Field>
           </div>
 
@@ -158,7 +166,7 @@ export default function RegisterPage() {
           )}
 
           <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center">
-            <Button type="submit" disabled={busy || password.length < 15}>
+            <Button type="submit" disabled={busy}>
               {busy ? "Создание…" : "Создать аккаунт"}<ArrowRight size={17} />
             </Button>
             <Link href="/login" className="text-center text-sm font-bold text-teal-700">
