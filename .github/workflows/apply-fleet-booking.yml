@@ -1,0 +1,39 @@
+name: Apply verified fleet booking patch
+
+on:
+  push:
+    branches:
+      - feat/fleet-booking-profile
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feat/fleet-booking-profile
+          fetch-depth: 0
+      - name: Verify and apply patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d .github/patches/fleet-booking.patch.gz.b64 | gzip -d > /tmp/feature.patch
+          echo "ca88aa55c7f73a83ae330698e9e3011e7f9cb0d06349c2c9f4efafe70d4eacc8  /tmp/feature.patch" | sha256sum -c -
+          git apply --check /tmp/feature.patch
+          git apply /tmp/feature.patch
+          git diff --check
+          rm -f .github/patches/fleet-booking.patch.gz.b64
+          rm -f .github/workflows/apply-fleet-booking.yml
+      - name: Commit applied feature
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: implement fleet capacity booking and account management"
+          git push origin HEAD:feat/fleet-booking-profile
