@@ -92,6 +92,7 @@ jobs:
           cp "$CERT_ROOT/rohbar.vosiev.com/fullchain.pem" "$CERT_ROOT/rohbar-api.vosiev.com/fullchain.pem"
           docker run --rm \
             -v "$PWD/infra/nginx/rohbar.conf.example:/etc/nginx/conf.d/default.conf:ro" \
+            -v "$PWD/infra/nginx/cloudflare-realip.conf.example:/etc/nginx/rohbar-cloudflare-realip.conf:ro" \
             -v "$CERT_ROOT:/etc/letsencrypt/live:ro" \
             nginx:alpine nginx -t
       - name: Build API production image
