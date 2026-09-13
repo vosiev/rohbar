@@ -3,20 +3,25 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, UserRound, Truck } from "lucide-react";
 import { Button, Card, PageHeader, StatCard, StatusBadge } from "@/components/rohbar-ui";
+import { useMessages } from "@/lib/i18n-context";
+import { operationMessages } from "@/lib/messages/operations";
+import { formatError } from "@/lib/i18n";
+import type { ApiError } from "@/types/api";
 import { api } from "@/lib/api";
 import type { DriverAssignment, Shipment } from "@/types";
 
 export default function CarrierActivePage() {
+  const { m, locale } = useMessages(operationMessages);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [assignments, setAssignments] = useState<DriverAssignment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | string>("");
 
   useEffect(() => {
     let active = true;
     void Promise.all([api.shipments.list(), api.drivers.assignments()]).then(([shipmentResult, assignmentResult]) => {
       if (!active) return;
-      if (shipmentResult.error) setError(shipmentResult.error.message);
+      if (shipmentResult.error) setError(shipmentResult.error);
       else {
         setShipments(
           shipmentResult.data.filter((shipment) =>
@@ -35,44 +40,43 @@ export default function CarrierActivePage() {
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
-        eyebrow="RohBar · перевозчик"
-        title="Активные рейсы"
-        description="Принятые перевозки, назначения водителей и текущие статусы."
+        eyebrow={m("carrierEyebrow")}
+        title={m("activeTrips")}
+        description={m("activeDescription")}
         action={
           <Button href="/carrier/shipments">
-            Найти загрузку <ArrowRight size={17} />
+             {m("findCargo")} <ArrowRight size={17} />
           </Button>
         }
       />
 
       {error && (
         <p role="alert" className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-          {error}
+          {formatError(error, locale)}
         </p>
       )}
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard icon={Truck} label="Активные рейсы" value={String(shipments.length)} />
-        <StatCard icon={UserRound} label="Назначения" value={String(assignments.length)} />
+        <StatCard icon={Truck} label={m("activeTrips")} value={String(shipments.length)} />
+        <StatCard icon={UserRound} label={m("assignments")} value={String(assignments.length)} />
         <StatCard
           icon={ArrowRight}
-          label="В пути"
+          label={m("inTransit")}
           value={String(shipments.filter((shipment) => shipment.status === "in_transit").length)}
         />
       </div>
 
       <Card className="mt-6">
-        <h2 className="text-lg font-black">Операционный список</h2>
+        <h2 className="text-lg font-black">{m("operationsList")}</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Статусы и назначения загружаются непосредственно из backend RohBar.
-        </p>
+           {m("operationsDescription")} </p>
 
         {loading ? (
-          <p className="mt-5 text-sm font-semibold text-slate-500">Загружаем активные рейсы…</p>
+          <p className="mt-5 text-sm font-semibold text-slate-500">{m("loadingActive")}</p>
         ) : (
           <div className="mt-5 space-y-3">
             {!shipments.length ? (
-              <p className="py-8 text-center text-sm text-slate-500">Активных рейсов пока нет.</p>
+              <p className="py-8 text-center text-sm text-slate-500">{m("noActive")}</p>
             ) : (
               shipments.map((shipment) => {
                 const assignment = assignments.find((item) => item.shipmentId === shipment.id);
@@ -97,7 +101,7 @@ export default function CarrierActivePage() {
                         )}
                       </div>
                       <Button href={`/carrier/shipments/${shipment.id}`}>
-                        Управлять рейсом <ArrowRight size={16} />
+                         {m("manageTrip")} <ArrowRight size={16} />
                       </Button>
                     </div>
                   </div>

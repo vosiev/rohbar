@@ -4,20 +4,26 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Clock3, Truck, WalletCards } from "lucide-react";
 import { Button, Card, PageHeader, StatusBadge } from "@/components/rohbar-ui";
 import { api } from "@/lib/api";
+import { useMessages } from "@/lib/i18n-context";
+import { shipmentMessages } from "@/lib/messages/shipments";
+import { formatError, formatProductValue } from "@/lib/i18n";
+import type { ApiError } from "@/types/api";
 import type { ShipmentOffer } from "@/types";
 
 export function OffersClient({ shipmentId }: { shipmentId: string | null }) {
+  const { m, locale } = useMessages(shipmentMessages);
+
   const [offers, setOffers] = useState<ShipmentOffer[]>([]);
   const [loading, setLoading] = useState(Boolean(shipmentId));
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | string>("");
 
   useEffect(() => {
     if (!shipmentId) return;
     let active = true;
     void api.offers.list(shipmentId).then((result) => {
       if (!active) return;
-      if (result.error) setError(result.error.message);
+      if (result.error) setError(result.error);
       else setOffers(result.data);
       setLoading(false);
     });
@@ -38,7 +44,7 @@ export function OffersClient({ shipmentId }: { shipmentId: string | null }) {
 
     const result = await api.offers.accept(id);
     if (result.error) {
-      setError(result.error.message);
+      setError(result.error);
       setBusy(null);
       return;
     }
@@ -60,12 +66,12 @@ export function OffersClient({ shipmentId }: { shipmentId: string | null }) {
     return (
       <div className="mx-auto max-w-3xl">
         <Card>
-          <h1 className="text-xl font-black">Не выбрана заявка</h1>
+          <h1 className="text-xl font-black">{m("noShipmentSelected")}</h1>
           <p className="mt-2 text-sm text-slate-500">
-            Откройте нужную перевозку и перейдите к её предложениям.
+            {m("openShipmentOffers")}
           </p>
           <Button href="/shipments" variant="secondary" className="mt-5">
-            К перевозкам
+            {m("toShipments")}
           </Button>
         </Card>
       </div>
@@ -75,26 +81,26 @@ export function OffersClient({ shipmentId }: { shipmentId: string | null }) {
   return (
     <div className="mx-auto max-w-5xl">
       <PageHeader
-        eyebrow="RohBar · предложения"
-        title="Предложения перевозчиков"
-        description={`Сравните стоимость, транспорт и срок доставки для заявки ${shipmentId}.`}
+        eyebrow={m("offersEyebrow")}
+        title={m("carrierOffers")}
+        description={m("compareOffers", { id: shipmentId })}
       />
 
       {accepted && (
         <div className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
-          Перевозчик выбран: {accepted.carrierName}.
+          {m("selectedCarrier", { name: accepted.carrierName })}
         </div>
       )}
 
       {error && (
         <p role="alert" className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-          {error}
+          {formatError(error, locale)}
         </p>
       )}
 
       {loading ? (
         <Card>
-          <p className="text-sm font-semibold text-slate-500">Загружаем предложения…</p>
+          <p className="text-sm font-semibold text-slate-500">{m("loadingOffers")}</p>
         </Card>
       ) : (
         <div className="space-y-4">
@@ -113,7 +119,7 @@ export function OffersClient({ shipmentId }: { shipmentId: string | null }) {
                       <h2 className="font-black">{offer.carrierName}</h2>
                       {offer.status === "accepted" && <StatusBadge status="accepted" />}
                     </div>
-                    <p className="mt-1 text-sm text-slate-500">{offer.vehicle}</p>
+                    <p className="mt-1 text-sm text-slate-500">{formatProductValue(offer.vehicle, locale)}</p>
                     <div className="mt-3 flex flex-wrap gap-4 text-sm font-semibold text-slate-600">
                       <span className="inline-flex items-center gap-1">
                         <Clock3 size={15} />
@@ -133,14 +139,14 @@ export function OffersClient({ shipmentId }: { shipmentId: string | null }) {
                   {offer.status === "accepted" ? (
                     <>
                       <Check size={17} />
-                      Перевозчик выбран
+                      {m("carrierSelected")}
                     </>
                   ) : busy === offer.id ? (
-                    "Выбираем…"
+                    m("selecting")
                   ) : offer.status === "rejected" ? (
-                    "Отклонено"
+                    m("rejected")
                   ) : (
-                    "Выбрать перевозчика"
+                    m("selectCarrier")
                   )}
                 </Button>
               </div>
@@ -149,9 +155,9 @@ export function OffersClient({ shipmentId }: { shipmentId: string | null }) {
 
           {!offers.length && (
             <Card>
-              <p className="font-bold">Пока нет предложений</p>
+              <p className="font-bold">{m("noOffers")}</p>
               <p className="mt-1 text-sm text-slate-500">
-                Когда перевозчики откликнутся на заявку, предложения появятся здесь.
+                {m("noOffersDescription")}
               </p>
             </Card>
           )}

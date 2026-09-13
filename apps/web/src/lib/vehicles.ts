@@ -1,4 +1,7 @@
-import type { VehicleBodyCode } from "@/types";
+import { intlLocale } from "@/lib/i18n";
+import { commonMessages } from "@/lib/messages/common";
+import { vehicleMessages } from "@/lib/messages/vehicles";
+import type { Locale, VehicleBodyCode } from "@/types";
 
 export type VehicleBodyType = {
   code: VehicleBodyCode;
@@ -7,35 +10,34 @@ export type VehicleBodyType = {
   image: string;
 };
 
-export const vehicleBodyTypes: VehicleBodyType[] = [
-  { code: "curtain", label: "Тент / штора", description: "Универсальная боковая и задняя погрузка.", image: "/vehicles/curtain.svg" },
-  { code: "box", label: "Фургон", description: "Закрытый кузов для защиты груза от погоды.", image: "/vehicles/box.svg" },
-  { code: "reefer", label: "Рефрижератор", description: "Кузов с поддержанием заданной температуры.", image: "/vehicles/reefer.svg" },
-  { code: "isotherm", label: "Изотерм", description: "Термоизолированный кузов без активного охлаждения.", image: "/vehicles/isotherm.svg" },
-  { code: "flatbed", label: "Бортовой", description: "Открытая платформа с бортами для крупного груза.", image: "/vehicles/flatbed.svg" },
-  { code: "lowbed", label: "Трал", description: "Низкорамная платформа для техники и негабарита.", image: "/vehicles/lowbed.svg" },
-  { code: "container", label: "Контейнеровоз", description: "Шасси для стандартных грузовых контейнеров.", image: "/vehicles/container.svg" },
-  { code: "van", label: "Малотоннажный фургон", description: "Для небольших и городских партий груза.", image: "/vehicles/van.svg" },
-];
+/** Canonical Russian labels are retained for API payload compatibility. */
+export const vehicleBodyTypes: VehicleBodyType[] = getVehicleBodyTypes("ru");
 
-export function bodyType(code?: VehicleBodyCode | null) {
-  return vehicleBodyTypes.find((item) => item.code === code) ?? vehicleBodyTypes[0];
+export function getVehicleBodyTypes(locale: Locale): VehicleBodyType[] {
+  return (Object.keys(vehicleMessages) as VehicleBodyCode[]).map(code => ({
+    code, ...vehicleMessages[code][locale], image: `/vehicles/${code}.svg`,
+  }));
 }
 
-export function formatWeightKg(value?: number | null) {
+export function bodyType(code?: VehicleBodyCode | null, locale: Locale = "ru") {
+  const types = getVehicleBodyTypes(locale);
+  return types.find(item => item.code === code) ?? types[0];
+}
+
+export function formatWeightKg(value?: number | null, locale: Locale = "ru") {
   if (value == null) return "—";
-  if (value >= 1000) return `${(value / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} т`;
-  return `${value.toLocaleString("ru-RU")} кг`;
+  if (value >= 1000) return `${(value / 1000).toLocaleString(intlLocale[locale], { maximumFractionDigits: 2 })} т`;
+  return `${value.toLocaleString(intlLocale[locale])} кг`;
 }
 
-export function formatVolumeLiters(value?: number | null) {
-  if (value == null) return "Не указан";
-  return `${(value / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} м³`;
+export function formatVolumeLiters(value?: number | null, locale: Locale = "ru") {
+  if (value == null) return commonMessages.notSpecified[locale];
+  return `${(value / 1000).toLocaleString(intlLocale[locale], { maximumFractionDigits: 2 })} м³`;
 }
 
-export function formatDimensions(lengthMm?: number | null, widthMm?: number | null, heightMm?: number | null) {
-  if (!lengthMm || !widthMm || !heightMm) return "Размеры не указаны";
-  return `${(lengthMm / 1000).toFixed(2)} × ${(widthMm / 1000).toFixed(2)} × ${(heightMm / 1000).toFixed(2)} м`;
+export function formatDimensions(lengthMm?: number | null, widthMm?: number | null, heightMm?: number | null, locale: Locale = "ru") {
+  if (!lengthMm || !widthMm || !heightMm) return commonMessages.noDimensions[locale];
+  return [lengthMm, widthMm, heightMm].map(value => (value / 1000).toLocaleString(intlLocale[locale], { minimumFractionDigits: 2, maximumFractionDigits: 2 })).join(" × ") + " м";
 }
 
 export function calculateVolumeLiters(lengthCm: number, widthCm: number, heightCm: number, quantity: number) {

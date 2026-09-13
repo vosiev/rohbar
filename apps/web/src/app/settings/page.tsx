@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation";
 import { Bell, Languages, LogOut, Server, Send, ShieldCheck, UserRound } from "lucide-react";
 import { Button, Card, PageHeader } from "@/components/rohbar-ui";
 import { api } from "@/lib/api";
-import { useI18n } from "@/lib/i18n-context";
+import { accountMessages } from "@/lib/messages/account";
+import { formatError } from "@/lib/i18n";
+import type { ApiError } from "@/types/api";
+import { useI18n, useMessages } from "@/lib/i18n-context";
 import { roleLabel, setStoredRole } from "@/lib/session";
 import { useTelegram } from "@/lib/telegram";
 import type { HealthStatus, NotificationItem, User } from "@/types";
@@ -19,8 +22,9 @@ type AboutStatus = {
 };
 
 export default function Settings() {
+  const { m, locale } = useMessages(accountMessages);
   const router = useRouter();
-  const { locale, setLocale } = useI18n();
+  const { setLocale } = useI18n();
   const { isTelegram } = useTelegram();
   const [user, setUser] = useState<User | null>(null);
   const [health, setHealth] = useState<HealthStatus | null>(null);
@@ -28,7 +32,7 @@ export default function Settings() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | string>("");
 
   useEffect(() => {
     let active = true;
@@ -44,10 +48,10 @@ export default function Settings() {
       if (!aboutResult.error) setAbout(aboutResult.data);
       if (!notificationResult.error) setNotifications(notificationResult.data);
       const firstError = [
-        userResult.error?.message,
-        healthResult.error?.message,
-        aboutResult.error?.message,
-        notificationResult.error?.message,
+        userResult.error,
+        healthResult.error,
+        aboutResult.error,
+        notificationResult.error,
       ].find(Boolean);
       setError(firstError || "");
       setLoading(false);
@@ -62,7 +66,7 @@ export default function Settings() {
     setLoggingOut(true);
     const result = await api.auth.logout();
     if (result.error) {
-      setError(result.error.message);
+      setError(result.error);
       setLoggingOut(false);
       return;
     }
@@ -76,36 +80,36 @@ export default function Settings() {
     <div className="mx-auto max-w-4xl">
       <PageHeader
         eyebrow="RohBar"
-        title="Настройки"
-        description="Реальные параметры аккаунта, языка, уведомлений и подключённых сервисов."
+        title={m("settings")}
+        description={m("settingsDescription")}
       />
 
       {error && (
         <p role="alert" className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-          {error}
+          {formatError(error, locale)}
         </p>
       )}
 
       {loading ? (
-        <Card>Загружаем настройки из backend RohBar…</Card>
+        <Card>{m("loadingSettings")}</Card>
       ) : (
         <div className="grid gap-5 lg:grid-cols-2">
           <Card>
             <SectionIcon icon={UserRound} />
-            <h2 className="mt-4 text-lg font-black">Аккаунт</h2>
-            <p className="mt-2 text-sm text-slate-500">{user?.name || "Пользователь"}</p>
+            <h2 className="mt-4 text-lg font-black">{m("account")}</h2>
+            <p className="mt-2 text-sm text-slate-500">{user?.name || m("user")}</p>
             <p className="mt-1 text-sm font-semibold text-slate-700">{user?.email || "—"}</p>
-            {user && <p className="mt-1 text-xs font-bold text-teal-700">{roleLabel(user.role)}</p>}
+            {user && <p className="mt-1 text-xs font-bold text-teal-700">{roleLabel(user.role, locale)}</p>}
             <Button href="/profile" variant="secondary" className="mt-5 w-full">
-              Изменить профиль и пароль
+              {m("editProfilePassword")}
             </Button>
           </Card>
 
           <Card>
             <SectionIcon icon={Languages} />
-            <h2 className="mt-4 text-lg font-black">Язык интерфейса</h2>
+            <h2 className="mt-4 text-lg font-black">{m("interfaceLanguage")}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Переключение применяется сразу к локализованным элементам интерфейса и сохраняется на этом устройстве.
+              {m("languageDescription")}
             </p>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <LanguageButton active={locale === "ru"} onClick={() => setLocale("ru")} label="Русский" />
@@ -115,42 +119,42 @@ export default function Settings() {
 
           <Card>
             <SectionIcon icon={Bell} />
-            <h2 className="mt-4 text-lg font-black">Уведомления</h2>
-            <p className="mt-2 text-sm text-slate-500">Непрочитанных событий: {unread}</p>
-            <p className="mt-1 text-sm text-slate-500">Всего событий: {notifications.length}</p>
+            <h2 className="mt-4 text-lg font-black">{m("notifications")}</h2>
+            <p className="mt-2 text-sm text-slate-500">{m("unreadCount", { count: unread })}</p>
+            <p className="mt-1 text-sm text-slate-500">{m("eventCount", { count: notifications.length })}</p>
             <Button href="/notifications" variant="secondary" className="mt-5 w-full">
-              Открыть центр уведомлений
+              {m("openNotifications")}
             </Button>
           </Card>
 
           <Card>
             <SectionIcon icon={Send} />
             <h2 className="mt-4 text-lg font-black">Telegram</h2>
-            <StatusRow label="Backend-интеграция" ok={Boolean(about?.telegram)} />
-            <StatusRow label="Открыто внутри Telegram Mini App" ok={isTelegram} />
+            <StatusRow label={m("telegramIntegration")} ok={Boolean(about?.telegram)} />
+            <StatusRow label={m("insideTelegram")} ok={isTelegram} />
             <p className="mt-3 text-xs leading-5 text-slate-400">
-              Статус берётся из backend-конфигурации RohBar и Telegram WebApp runtime, а не из статической заглушки.
+              {m("telegramStatusDescription")}
             </p>
           </Card>
 
           <Card>
             <SectionIcon icon={Server} />
-            <h2 className="mt-4 text-lg font-black">Система RohBar</h2>
+            <h2 className="mt-4 text-lg font-black">{m("system")}</h2>
             <StatusRow label="API" ok={health?.status === "ok"} />
             <StatusRow label="PostgreSQL" ok={Boolean(health?.database)} />
             <StatusRow label="Redis" ok={Boolean(health?.redis)} />
-            <p className="mt-3 text-xs text-slate-400">Версия API: {about?.version || "—"}</p>
-            <p className="mt-1 text-xs text-slate-400">Realtime: {about?.realtime.join(", ") || "—"}</p>
+            <p className="mt-3 text-xs text-slate-400">{m("apiVersion", { version: about?.version || "—" })}</p>
+            <p className="mt-1 text-xs text-slate-400">{m("realtime", { protocols: about?.realtime.join(", ") || "—" })}</p>
           </Card>
 
           <Card>
             <SectionIcon icon={ShieldCheck} />
-            <h2 className="mt-4 text-lg font-black">Сессия</h2>
+            <h2 className="mt-4 text-lg font-black">{m("session")}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Выход завершит текущую серверную сессию RohBar на этом устройстве.
+              {m("logoutDescription")}
             </p>
             <Button variant="secondary" className="mt-5 w-full" disabled={loggingOut} onClick={() => void logout()}>
-              <LogOut size={17} /> {loggingOut ? "Выходим…" : "Выйти из аккаунта"}
+              <LogOut size={17} /> {loggingOut ? m("loggingOut") : m("logout")}
             </Button>
           </Card>
         </div>
@@ -183,11 +187,12 @@ function LanguageButton({ active, onClick, label }: { active: boolean; onClick: 
 }
 
 function StatusRow({ label, ok }: { label: string; ok: boolean }) {
+  const { m } = useMessages(accountMessages);
   return (
     <div className="mt-3 flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-3 py-2.5">
       <span className="text-sm font-semibold text-slate-600">{label}</span>
       <span className={`text-xs font-black ${ok ? "text-emerald-700" : "text-amber-700"}`}>
-        {ok ? "Работает" : "Не активно"}
+        {ok ? m("working") : m("inactive")}
       </span>
     </div>
   );

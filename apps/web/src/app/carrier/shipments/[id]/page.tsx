@@ -3,11 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, Truck, UserRound } from "lucide-react";
 import { Button, Card, Field, PageHeader, StatusBadge, inputClass } from "@/components/rohbar-ui";
+import { useMessages } from "@/lib/i18n-context";
+import { operationMessages } from "@/lib/messages/operations";
+import { formatError, formatProductValue, formatDate } from "@/lib/i18n";
+import type { ApiError } from "@/types/api";
 import { api } from "@/lib/api";
 import { formatVolumeLiters, formatWeightKg } from "@/lib/vehicles";
 import type { DriverAssignment, FleetVehicle, Shipment, ShipmentOffer, TeamDriver } from "@/types";
 
 export default function CarrierShipmentPage({ params }: { params: Promise<{ id: string }> }) {
+  const { m, locale } = useMessages(operationMessages);
   const [id, setId] = useState("");
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [offers, setOffers] = useState<ShipmentOffer[]>([]);
@@ -21,7 +26,7 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
   const [vehicleId, setVehicleId] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"offer" | "driver" | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | string>("");
 
   useEffect(() => {
     let active = true;
@@ -35,7 +40,7 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
       ]);
       if (!active) return;
       setId(shipmentId);
-      if (shipmentResult.error) setError(shipmentResult.error.message);
+      if (shipmentResult.error) setError(shipmentResult.error);
       else setShipment(shipmentResult.data);
       if (!offersResult.error) setOffers(offersResult.data);
       if (!assignmentsResult.error) {
@@ -67,7 +72,7 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
       vehicleId: offerVehicle,
     });
     if (result.error) {
-      setError(result.error.message);
+      setError(result.error);
     } else {
       setOffers([result.data]);
       const shipmentResult = await api.shipments.get(id);
@@ -85,7 +90,7 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
       driverId: driverId.trim(),
       vehicleId: vehicleId || null,
     });
-    if (result.error) setError(result.error.message);
+    if (result.error) setError(result.error);
     else setAssignment(result.data);
     setBusy(null);
   }
@@ -93,7 +98,7 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
   if (loading) {
     return (
       <div className="mx-auto max-w-5xl">
-        <Card>Загрузка рейса…</Card>
+        <Card>{m("loadingTrip")}</Card>
       </div>
     );
   }
@@ -102,11 +107,10 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
     return (
       <div className="mx-auto max-w-5xl">
         <Card>
-          <h1 className="text-xl font-black">Рейс недоступен</h1>
-          <p className="mt-2 text-sm text-slate-500">{error || "Перевозка не найдена."}</p>
+          <h1 className="text-xl font-black">{m("tripUnavailable")}</h1>
+          <p className="mt-2 text-sm text-slate-500">{error ? formatError(error, locale) : m("shipmentNotFound")}</p>
           <Button href="/carrier/shipments" variant="secondary" className="mt-5">
-            К перевозкам
-          </Button>
+             {m("backToShipments")} </Button>
         </Card>
       </div>
     );
@@ -117,19 +121,18 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
-        eyebrow="RohBar · перевозчик"
-        title={`Рейс ${shipment.id}`}
+        eyebrow={m("carrierEyebrow")}
+        title={m("tripTitle", { id: shipment.id })}
         description={`${shipment.from} → ${shipment.to}`}
         action={
           <Button href="/carrier/shipments" variant="secondary">
-            <ArrowLeft size={17} />Все перевозки
-          </Button>
+            <ArrowLeft size={17} />{m("allShipments")} </Button>
         }
       />
 
       {error && (
         <p role="alert" className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-          {error}
+          {formatError(error, locale)}
         </p>
       )}
 
@@ -138,28 +141,27 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
           <Card>
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-bold text-slate-400">Маршрут</p>
+                <p className="text-sm font-bold text-slate-400">{m("route")}</p>
                 <h2 className="mt-1 text-2xl font-black">{shipment.from} → {shipment.to}</h2>
                 <p className="mt-2 text-slate-500">{shipment.cargo} · {shipment.weight}</p>
               </div>
               <StatusBadge status={shipment.status} />
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
-              <Metric label="Дата" value={shipment.date} />
-              <Metric label="Транспорт" value={shipment.vehicle} />
-              <Metric label="Бюджет" value={shipment.price} />
+              <Metric label={m("date")} value={formatDate(shipment.date, locale)} />
+              <Metric label={m("transport")} value={formatProductValue(shipment.vehicle, locale)} />
+              <Metric label={m("budget")} value={shipment.price} />
             </div>
           </Card>
 
           {canOffer && (
             <Card>
-              <h2 className="text-lg font-black">Предложить перевозку</h2>
+              <h2 className="text-lg font-black">{m("proposeShipment")}</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Укажите стоимость, срок и автомобиль из вашего автопарка.
-              </p>
+                 {m("offerHelp")} </p>
               {fleet.length ? (
                 <form onSubmit={createOffer} className="mt-5 grid gap-4 sm:grid-cols-2">
-                  <Field label="Стоимость" required>
+                  <Field label={m("price")} required>
                     <input
                       className={inputClass}
                       required
@@ -168,30 +170,30 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
                       placeholder="80 000 ₽"
                     />
                   </Field>
-                  <Field label="Срок доставки" required>
+                  <Field label={m("deliveryTime")} required>
                     <input
                       className={inputClass}
                       required
                       value={offerEta}
                       onChange={(event) => setOfferEta(event.target.value)}
-                      placeholder="1 день"
+                      placeholder={m("oneDay")}
                     />
                   </Field>
                   <div className="sm:col-span-2">
-                    <Field label="Автомобиль" required>
+                    <Field label={m("vehicle")} required>
                       <select
                         className={inputClass}
                         required
                         value={offerVehicle}
                         onChange={(event) => setOfferVehicle(event.target.value)}
                       >
-                        <option value="">Выберите транспорт</option>
+                        <option value="">{m("selectVehicle")}</option>
                         {fleet
                           .filter((vehicle) => vehicle.status === "available")
                           .filter((vehicle) => !shipment.selectedVehicleId || vehicle.id === shipment.selectedVehicleId)
                           .map((vehicle) => (
                             <option key={vehicle.id} value={vehicle.id}>
-                              {vehicle.plate} · {vehicle.model} · {vehicle.body} · {formatWeightKg(vehicle.capacityKg)} · {formatVolumeLiters(vehicle.volumeLiters)}
+                              {vehicle.plate} · {vehicle.model} · {formatProductValue(vehicle.body, locale)} · {formatWeightKg(vehicle.capacityKg, locale)} · {formatVolumeLiters(vehicle.volumeLiters, locale)}
                             </option>
                           ))}
                       </select>
@@ -199,25 +201,23 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
                   </div>
                   <div className="sm:col-span-2">
                     <Button type="submit" disabled={busy !== null || !offerVehicle}>
-                      {busy === "offer" ? "Отправка…" : "Отправить предложение"}
+                      {busy === "offer" ? m("sending") : m("sendOffer")}
                     </Button>
                   </div>
                 </form>
               ) : (
                 <div className="mt-5">
                   <p className="text-sm text-slate-500">
-                    Для предложения сначала добавьте транспорт в автопарк.
-                  </p>
+                     {m("addVehicleFirst")} </p>
                   <Button href="/fleet" variant="secondary" className="mt-4">
-                    Открыть автопарк
-                  </Button>
+                     {m("openFleet")} </Button>
                 </div>
               )}
             </Card>
           )}
 
           <Card>
-            <h2 className="text-lg font-black">Назначение водителя</h2>
+            <h2 className="text-lg font-black">{m("driverAssignment")}</h2>
             {assignment ? (
               <div className="mt-5 rounded-2xl border border-teal-200 bg-teal-50 p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -227,7 +227,7 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
                     </span>
                     <div>
                       <p className="font-black">{assignment.driverName}</p>
-                      <p className="text-sm text-slate-500">{assignment.phone || "Телефон не указан"}</p>
+                      <p className="text-sm text-slate-500">{assignment.phone || m("noPhone")}</p>
                     </div>
                   </div>
                   <CheckCircle2 className="text-teal-600" size={20} />
@@ -241,11 +241,10 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
             ) : accepted ? (
               <form onSubmit={assign} className="mt-5 space-y-4">
                 <p className="text-sm text-slate-500">
-                  Выберите свободного водителя из вашей команды. Состав команды управляется в разделе «Автопарк».
-                </p>
-                <Field label="Водитель" required>
+                   {m("selectDriverHelp")} </p>
+                <Field label={m("driver")} required>
                   <select className={inputClass} required value={driverId} onChange={(event) => setDriverId(event.target.value)}>
-                    <option value="">Выберите свободного водителя</option>
+                    <option value="">{m("selectFreeDriver")}</option>
                     {team.filter((driver) => !driver.busy).map((driver) => (
                       <option key={driver.id} value={driver.id}>
                         {driver.name}{driver.phone ? ` · ${driver.phone}` : ""}
@@ -253,9 +252,9 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
                     ))}
                   </select>
                 </Field>
-                <Field label="Автомобиль">
+                <Field label={m("vehicle")}>
                   <select className={inputClass} value={vehicleId} onChange={(event) => setVehicleId(event.target.value)}>
-                    <option value="">Без автомобиля</option>
+                    <option value="">{m("withoutVehicle")}</option>
                     {fleet
                       .filter((vehicle) => !accepted?.vehicleId || vehicle.id === accepted.vehicleId)
                       .map((vehicle) => (
@@ -266,37 +265,35 @@ export default function CarrierShipmentPage({ params }: { params: Promise<{ id: 
                   </select>
                 </Field>
                 <Button type="submit" disabled={busy !== null}>
-                  {busy === "driver" ? "Назначение…" : "Назначить водителя"}
+                  {busy === "driver" ? m("assigning") : m("assignDriver")}
                 </Button>
               </form>
             ) : (
               <p className="mt-4 text-sm text-slate-500">
-                Назначить водителя можно после принятия вашего предложения заказчиком.
-              </p>
+                 {m("assignmentAfterAcceptance")} </p>
             )}
           </Card>
         </div>
 
         <aside className="space-y-6">
           <Card>
-            <h2 className="font-black">Ваше предложение</h2>
+            <h2 className="font-black">{m("yourOffer")}</h2>
             {ownOffer ? (
               <div className="mt-4">
                 <OfferState status={ownOffer.status} />
                 <p className="mt-3 text-lg font-black">{ownOffer.carrierName}</p>
-                <p className="mt-1 text-sm text-slate-500">{ownOffer.vehicle}</p>
+                <p className="mt-1 text-sm text-slate-500">{formatProductValue(ownOffer.vehicle, locale)}</p>
                 <p className="mt-4 text-2xl font-black">{ownOffer.price}</p>
-                <p className="mt-1 text-sm text-slate-500">Срок: {ownOffer.eta}</p>
+                <p className="mt-1 text-sm text-slate-500">{m("etaPrefix")} {ownOffer.eta}</p>
               </div>
             ) : (
-              <p className="mt-3 text-sm text-slate-500">Вы ещё не отправляли предложение.</p>
+              <p className="mt-3 text-sm text-slate-500">{m("noOffer")}</p>
             )}
           </Card>
           <Card>
-            <h2 className="font-black">Состояние</h2>
+            <h2 className="font-black">{m("state")}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Заявка, предложение и назначение синхронизируются через backend RohBar.
-            </p>
+               {m("syncHelp")} </p>
           </Card>
         </aside>
       </div>
@@ -314,12 +311,13 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function OfferState({ status }: { status: ShipmentOffer["status"] }) {
+  const { m } = useMessages(operationMessages);
   const classes =
     status === "accepted"
       ? "bg-emerald-50 text-emerald-700"
       : status === "rejected"
         ? "bg-red-50 text-red-700"
         : "bg-amber-50 text-amber-700";
-  const label = status === "accepted" ? "Принято" : status === "rejected" ? "Отклонено" : "Ожидает решения";
+  const label = status === "accepted" ? m("accepted") : status === "rejected" ? m("rejected") : m("pending");
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${classes}`}>{label}</span>;
 }
