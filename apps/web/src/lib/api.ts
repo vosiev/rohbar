@@ -1,3 +1,4 @@
+import type { TelegramLinkCode, TelegramLinkStatus } from "@/lib/telegram-link";
 import type {
   ApiResult,
   AvailableVehicle,
@@ -376,6 +377,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ init_data: initData }),
       }),
+  },
+  telegramLink: {
+    status: () => request<TelegramLinkStatus>("/api/v1/profile/telegram"),
+    issue: () => request<TelegramLinkCode>("/api/v1/profile/telegram/link-code", { method: "POST" }),
+    unlink: () => request<TelegramLinkStatus>("/api/v1/profile/telegram/unlink", { method: "POST" }),
   },
   shipments: {
     list: async (query = "") => {

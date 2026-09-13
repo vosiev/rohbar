@@ -1,4 +1,4 @@
-use crate::{SharedState, User, create_session};
+use crate::{SharedState, User, telegram_link};
 use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -11,6 +11,7 @@ use axum::{
 };
 use hmac::{Hmac, Mac};
 use rand::{RngCore, rngs::OsRng};
+use redis::AsyncCommands;
 use serde::Deserialize;
 use serde_json::json;
 use sha2::Sha256;
@@ -33,6 +34,10 @@ struct Message {
 
 #[derive(Deserialize)]
 struct Sender {
+    #[serde(default)]
+    id: i64,
+    #[serde(default)]
+    is_bot: bool,
     language_code: Option<String>,
 }
 
@@ -86,7 +91,24 @@ pub async fn webhook(
     if message.chat.kind != "private" {
         return (StatusCode::OK, Json(json!({"ok":true})));
     }
-    let payload = bot_reply(&message, &state.frontend_origin);
+    let mut payload = bot_reply(&message, &state.frontend_origin);
+    if let Some(code) = telegram_link::link_command(message.text.as_deref().unwrap_or_default()) {
+        let outcome = if let Some(sender) = &message.from
+            && !sender.is_bot
+            && sender.id == message.chat.id
+            && sender.id > 0
+        {
+            telegram_link::redeem(&state, sender.id, code).await
+        } else {
+            telegram_link::Outcome::Invalid
+        };
+        let tg = message
+            .from
+            .as_ref()
+            .and_then(|s| s.language_code.as_deref())
+            == Some("tg");
+        payload["text"] = json!(outcome.text(tg));
+    }
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
@@ -166,17 +188,18 @@ pub async fn authenticate(
         _ => telegram_user.first_name.clone(),
     };
     let email = format!("telegram-{}@rohbar.local", telegram_user.id);
-    let stored_hash =
-        sqlx::query_scalar::<_, String>("SELECT password_hash FROM users WHERE telegram_id=$1")
-            .bind(telegram_user.id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|_| {
-                crate::json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Telegram user storage failed",
-                )
-            })?;
+    let stored_hash = sqlx::query_scalar::<_, String>(
+        "SELECT password_hash FROM users WHERE telegram_id=$1 AND NOT password_login_enabled",
+    )
+    .bind(telegram_user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| {
+        crate::json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Telegram user storage failed",
+        )
+    })?;
     let (password_hash, legacy_hash) = tokio::task::spawn_blocking(move || {
         let legacy_hash = stored_hash.filter(|hash| is_legacy_password(hash, telegram_user.id));
         random_password_hash().map(|hash| (hash, legacy_hash))
@@ -185,8 +208,20 @@ pub async fn authenticate(
     .map_err(|_| crate::json_error(StatusCode::INTERNAL_SERVER_ERROR, "Password hashing failed"))?
     .map_err(|message| crate::json_error(StatusCode::INTERNAL_SERVER_ERROR, message))?;
 
+    let mut tx = state.db.begin().await.map_err(|_| {
+        crate::json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Telegram user storage failed",
+        )
+    })?;
+    telegram_link::lock(&mut tx).await.map_err(|_| {
+        crate::json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Telegram user storage failed",
+        )
+    })?;
     let user = sqlx::query_as::<_, User>(
-        "INSERT INTO users(id,email,name,password_hash,role,telegram_id) VALUES($1,$2,$3,$4,'customer',$5) ON CONFLICT (telegram_id) DO UPDATE SET password_hash=CASE WHEN users.password_hash=$6 THEN EXCLUDED.password_hash ELSE users.password_hash END RETURNING id,email,name,role,phone,telegram_id",
+        "INSERT INTO users(id,email,name,password_hash,role,telegram_id,telegram_placeholder,password_login_enabled) VALUES($1,$2,$3,$4,'customer',$5,TRUE,FALSE) ON CONFLICT (telegram_id) DO UPDATE SET password_hash=CASE WHEN users.password_hash=$6 THEN EXCLUDED.password_hash ELSE users.password_hash END RETURNING id,email,name,role,phone,telegram_id",
     )
     .bind(uuid::Uuid::new_v4())
     .bind(email)
@@ -194,11 +229,44 @@ pub async fn authenticate(
     .bind(password_hash)
     .bind(telegram_user.id)
     .bind(legacy_hash)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|_| crate::json_error(StatusCode::INTERNAL_SERVER_ERROR, "Telegram user storage failed"))?;
 
-    let cookie = create_session(state, user.id).await?;
+    let version =
+        sqlx::query_scalar::<_, i64>("SELECT telegram_session_version FROM users WHERE id=$1")
+            .bind(user.id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| {
+                crate::json_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Telegram user storage failed",
+                )
+            })?;
+    tx.commit().await.map_err(|_| {
+        crate::json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Telegram user storage failed",
+        )
+    })?;
+    let sid = uuid::Uuid::new_v4().to_string();
+    let mut conn = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|_| crate::json_error(StatusCode::SERVICE_UNAVAILABLE, "Redis unavailable"))?;
+    let _: () = conn
+        .set_ex(
+            format!("rohbar:session:{sid}"),
+            format!("{}:{version}", user.id),
+            604_800,
+        )
+        .await
+        .map_err(|_| {
+            crate::json_error(StatusCode::SERVICE_UNAVAILABLE, "Session storage failed")
+        })?;
+    let cookie = crate::session_cookie(&sid, state.session_cookie_secure);
     Ok((user, cookie))
 }
 
@@ -332,10 +400,10 @@ fn bot_reply(message: &Message, frontend_origin: &str) -> serde_json::Value {
         }
         ("/start", true) => "Хуш омадед ба RohBar. Барои идоракунии боркашонӣ барномаро кушоед.",
         ("/help", false) => {
-            "Заявки, предложения, рейсы и уведомления доступны в приложении RohBar."
+            "Заявки, предложения, рейсы и уведомления доступны в RohBar. Для привязки существующего аккаунта получите код в настройках и отправьте /link и 6 цифр."
         }
         ("/help", true) => {
-            "Дархостҳо, пешниҳодҳо, сафарҳо ва огоҳиномаҳо дар барномаи RohBar дастрасанд."
+            "Дархостҳо, пешниҳодҳо, сафарҳо ва огоҳиномаҳо дар RohBar дастрасанд. Барои пайваст кардани ҳисоби мавҷуда дар танзимот рамз гиред ва /link бо 6 рақам фиристед."
         }
         (_, false) => "Используйте /start или откройте приложение RohBar.",
         (_, true) => "Фармони /start-ро истифода баред ё барномаи RohBar-ро кушоед.",

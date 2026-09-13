@@ -1,5 +1,6 @@
 "use client";
 
+import { TelegramAccountLink } from "@/components/telegram-account-link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, Languages, LogOut, Server, Send, ShieldCheck, UserRound } from "lucide-react";
@@ -135,6 +136,7 @@ export default function Settings() {
             <p className="mt-3 text-xs leading-5 text-slate-400">
               {m("telegramStatusDescription")}
             </p>
+            {user && <TelegramAccountLink key={user.id} />}
           </Card>
 
           <Card>

@@ -68,6 +68,7 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(first, api.state)
         self.assertFalse(first["setWebhook"]["drop_pending_updates"])
         self.assertEqual(api.calls[0], "getMe")
+        self.assertIn("link", [c["command"] for c in first["setMyCommands"]["commands"]])
         self.assertNotIn("private-test-value", output.getvalue())
 
     def test_redacts_transport_and_api_errors(self):

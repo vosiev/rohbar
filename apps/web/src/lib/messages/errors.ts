@@ -2,6 +2,10 @@ import type { MessageCatalog } from "@/lib/i18n";
 
 // Exact server messages are matched only at the presentation boundary.
 export const errorMessages = {
+  "Telegram linking unavailable": { ru: "Привязка Telegram временно недоступна. Попробуйте позже.", tg: "Пайвасткунии Telegram муваққатан дастнорас аст. Баъдтар кӯшиш кунед." },
+  "Telegram link rate limit exceeded": { ru: "Слишком много запросов кода. Подождите 10 минут.", tg: "Дархостҳои рамз аз ҳад зиёданд. 10 дақиқа интизор шавед." },
+  "Telegram account already linked": { ru: "Аккаунт уже связан с Telegram. Обновите статус.", tg: "Ҳисоб аллакай ба Telegram пайваст аст. Ҳолатро нав кунед." },
+  "Alternative login required": { ru: "Нельзя отвязать единственный способ входа. Нужен доступ по почте и паролю.", tg: "Роҳи ягонаи воридшавиро ҷудо кардан мумкин нест. Дастрасӣ бо почта ва рамз лозим аст." },
   "A vehicle with this plate already exists in this fleet": {
     "ru": "В этом автопарке уже есть автомобиль с таким номером.",
     "tg": "Дар ин автопарк аллакай автомобил бо чунин рақам вуҷуд дорад."

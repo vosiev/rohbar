@@ -92,6 +92,7 @@ def configure(values, api):
     menu = {"type": "web_app", "text": "RohBar", "web_app": {"url": ORIGIN}}
     commands = [
         {"command": "start", "description": "Открыть RohBar / Кушодани RohBar"},
+        {"command": "link", "description": "Привязать аккаунт / Пайваст кардани ҳисоб"},
         {"command": "help", "description": "Помощь / Кӯмак"},
     ]
     for method, payload in (
