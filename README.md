@@ -522,3 +522,51 @@ rohbar/
 Лицензия проекта будет определена владельцем репозитория отдельно.
 
 Иҷозатномаи лоиҳа аз ҷониби соҳиби репозиторий алоҳида муайян карда мешавад.
+
+
+## Telegram: production setup
+
+Mini App отправляет исходный `Telegram.WebApp.initData` в `POST /api/v1/auth/telegram`
+один раз за загрузку приложения. Backend проверяет HMAC и `auth_date`, создаёт обычную
+HttpOnly-сессию и возвращает роль из БД. Вход с публичных страниц ведёт перевозчика в
+`/fleet`, водителя в `/driver`, заказчика и администратора в `/dashboard`.
+`initDataUnsafe` не используется для авторизации. Старые предсказуемые пароли Telegram
+заменяются случайным материалом при успешной проверке Telegram-входа; роль, профиль
+и пользовательские пароли сохраняются. Для ещё не вошедших старых аккаунтов эта
+замена произойдёт при следующем Telegram-входе.
+
+Оператору после зелёного CI и отдельного штатного выпуска backend/web:
+
+1. Через защищённый процесс управления конфигурацией задать `TELEGRAM_BOT_TOKEN`
+   от BotFather и случайный `TELEGRAM_WEBHOOK_SECRET` (1–256 символов `A-Z a-z 0-9 _ -`).
+   Backend и setup должны получать одинаковые значения. `FRONTEND_ORIGIN` должен быть
+   `https://rohbar.vosiev.com`; HTTPS endpoint `https://rohbar-api.vosiev.com/api/v1/telegram/webhook` должен быть
+   доступен Telegram. Значения секретов не передавать аргументами CLI и не публиковать.
+2. Проверить конфигурацию без сетевых вызовов:
+   `python3 scripts/setup-telegram.py --check-only`.
+3. Отдельно выполнить активацию: `python3 scripts/setup-telegram.py`.
+   Скрипт читает `infra/.env` без изменений и без исполнения shell-кода; переменные
+   процесса имеют приоритет. Для другого файла есть `--env-file /path/to/env`.
+   Требуется только Python 3 со стандартной библиотекой, доступ к `api.telegram.org`
+   по HTTPS и доверенные системные CA; HTTP proxy из окружения не используется.
+4. Скрипт вызывает `getMe`, `setWebhook` с `secret_token`, `setChatMenuButton`
+   с HTTPS Web App и `setMyCommands`, затем сверяет webhook, меню и команды.
+   Повторный запуск безопасно устанавливает ту же конфигурацию и не удаляет ожидающие
+   обновления. При частичной ошибке исправить причину и повторить запуск.
+5. В личном чате отправить `/start` и `/help`, открыть кнопку RohBar и проверить
+   серверную сессию и посадочную страницу роли; повторить с языком Telegram TG.
+   Проверить отказ webhook без `X-Telegram-Bot-Api-Secret-Token` или с неверным значением.
+   `getWebhookInfo` не возвращает секрет, поэтому проверка доставки обязательна.
+   Кнопки Web App отправляются только в личные чаты. Ошибки `sendMessage` видны в
+   backend-логах без token и возвращают HTTP 502 для повторной доставки Telegram;
+   при неопределённом исходе сетевого запроса возможен повтор ответа бота.
+
+Проверки скрипта без Telegram/production env:
+`python3 -B -m unittest discover -s scripts -p 'test_*.py'`.
+Проверки дедупликации frontend-входа после установки зависимостей web:
+`node --test scripts/test-telegram-runtime.cjs`.
+
+API сверены 2026-09-13 через Context7 и официальные страницы:
+[Mini Apps](https://core.telegram.org/bots/webapps) (`telegram-web-app.js?63`, загрузка
+до гидратации, raw initData) и [Bot API](https://core.telegram.org/bots/api)
+(`secret_token`, HTTPS `WebAppInfo`). Активация не выполняется при сборке или тестах.

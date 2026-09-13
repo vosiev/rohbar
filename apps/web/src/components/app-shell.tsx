@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, Boxes, Home, Menu, Plus, Search, Truck, UserRound, X, LogOut, Shield } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { I18nProvider, useMessages } from "@/lib/i18n-context";
 import { commonMessages } from "@/lib/messages/common";
 import { api } from "@/lib/api";
+import { authenticateTelegramOnce, useTelegram } from "@/lib/telegram";
 import { roleLabel, setStoredRole } from "@/lib/session";
 import type { Role, User } from "@/types";
 
@@ -25,37 +26,46 @@ function Shell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
+  const [telegramError, setTelegramError] = useState(false);
+  const bootstrapped = useRef(false);
+  const { isTelegram } = useTelegram();
   const path = usePathname();
   const router = useRouter();
   const { m, text, locale, setLocale } = useMessages(commonMessages);
 
   useEffect(() => {
     let active = true;
-    if (publicPaths.has(path)) {
-      if (path === "/") {
-        void api.auth.me().then(result => {
-          if (!active || result.error) return;
-          setUser(result.data);
-          setStoredRole(result.data.role);
-        });
+    void (async () => {
+      const telegram = !bootstrapped.current ? authenticateTelegramOnce() : null;
+      if (!telegram && publicPaths.has(path) && path !== "/") {
+        setReady(true);
+        return;
       }
-      return () => { active = false; };
-    }
-    void api.auth.me().then(result => {
+      const result = await (telegram ?? api.auth.me());
       if (!active) return;
+      bootstrapped.current = true;
       if (result.error) {
         setUser(null);
-        router.replace(`/login?next=${encodeURIComponent(path)}`);
+        setReady(!telegram && publicPaths.has(path));
+        if (telegram) {
+          setTelegramError(true);
+        } else if (!publicPaths.has(path)) {
+          router.replace(`/login?next=${encodeURIComponent(path)}`);
+        }
         return;
       }
       setUser(result.data);
       setStoredRole(result.data.role);
+      if (telegram && publicPaths.has(path)) {
+        router.replace(result.data.role === "carrier" ? "/fleet" : result.data.role === "driver" ? "/driver" : "/dashboard");
+        return;
+      }
       if (!canAccess(path, result.data.role)) {
         router.replace("/dashboard");
         return;
       }
       setReady(true);
-    });
+    })();
     return () => { active = false; };
   }, [path, router]);
 
@@ -74,7 +84,9 @@ function Shell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
-  if (!publicPaths.has(path) && !ready) return <div className="min-h-screen grid place-items-center bg-slate-50"><div className="text-sm font-semibold text-slate-500">{m("session")}</div></div>;
+  if (telegramError) return <div role="alert" className="min-h-screen grid place-items-center bg-slate-50 p-6"><p className="text-sm font-semibold text-red-700">{m("telegramAuthFailed")}</p></div>;
+
+  if ((!publicPaths.has(path) || isTelegram) && !ready) return <div className="min-h-screen grid place-items-center bg-slate-50"><div className="text-sm font-semibold text-slate-500">{m("session")}</div></div>;
 
   return <div className="min-h-screen">
     <header className="glass sticky top-0 z-40 border-b border-gray-200/80">
