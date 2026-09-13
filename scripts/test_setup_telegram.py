@@ -50,9 +50,12 @@ class SetupTests(unittest.TestCase):
                 if method.startswith("set"):
                     self.state[method] = payload
                     return True
+                if method == "getChatMenuButton":
+                    menu = dict(self.state["setChatMenuButton"]["menu_button"])
+                    menu["web_app"] = {"url": menu["web_app"]["url"] + "/"}
+                    return menu
                 return {
                     "getWebhookInfo": {"url": setup.WEBHOOK_URL, "allowed_updates": ["message"]},
-                    "getChatMenuButton": self.state["setChatMenuButton"]["menu_button"],
                     "getMyCommands": self.state["setMyCommands"]["commands"],
                 }[method]
 

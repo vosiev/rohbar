@@ -105,7 +105,15 @@ def configure(values, api):
     info = api.call("getWebhookInfo")
     if not isinstance(info, dict) or info.get("url") != webhook or info.get("allowed_updates") != ["message"]:
         raise SetupError("getWebhookInfo: webhook configuration mismatch")
-    if api.call("getChatMenuButton") != menu:
+    actual_menu = api.call("getChatMenuButton")
+    expected_url = menu["web_app"]["url"].rstrip("/")
+    actual_url = actual_menu.get("web_app", {}).get("url", "").rstrip("/") if isinstance(actual_menu, dict) else ""
+    if (
+        not isinstance(actual_menu, dict)
+        or actual_menu.get("type") != "web_app"
+        or actual_menu.get("text") != menu["text"]
+        or actual_url != expected_url
+    ):
         raise SetupError("getChatMenuButton: menu configuration mismatch")
     if api.call("getMyCommands") != commands:
         raise SetupError("getMyCommands: command configuration mismatch")
