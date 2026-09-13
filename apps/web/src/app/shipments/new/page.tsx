@@ -6,17 +6,20 @@ import { ArrowLeft, Check, PackageOpen, Ruler, Truck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Field, inputClass } from "@/components/rohbar-ui";
 import { api } from "@/lib/api";
+import { useMessages } from "@/lib/i18n-context";
+import { shipmentMessages } from "@/lib/messages/shipments";
+import { formatError, formatDate, formatProductValue } from "@/lib/i18n";
+import type { ApiError } from "@/types/api";
 import {
   bodyType,
   calculateVolumeLiters,
   formatDimensions,
   formatVolumeLiters,
   formatWeightKg,
-  vehicleBodyTypes,
+  getVehicleBodyTypes,
 } from "@/lib/vehicles";
 import type { AvailableVehicle, Shipment, VehicleBodyCode } from "@/types";
 
-const steps = ["Маршрут", "Груз", "Автомобиль", "Дата и бюджет", "Проверка"];
 type VolumeMode = "known" | "calculate" | "unknown";
 type VehicleMode = "specific" | "marketplace";
 type WeightUnit = "kg" | "t";
@@ -65,12 +68,14 @@ function numberValue(value: string) {
 }
 
 export default function NewShipmentPage() {
+  const { m, locale } = useMessages(shipmentMessages);
+  const steps = [m("route"), m("cargo"), m("vehicle"), m("dateBudget"), m("review")];
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<Form>(initialForm);
   const [vehicles, setVehicles] = useState<AvailableVehicle[]>([]);
   const [loadingVehicles, setLoadingVehicles] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | "requiredFields" | "differentCities" | "">("");
   const [created, setCreated] = useState<Shipment | null>(null);
 
   const weightKg = useMemo(() => {
@@ -127,7 +132,7 @@ export default function NewShipmentPage() {
       });
       if (!active) return;
       if (result.error) {
-        setError(result.error.message);
+        setError(result.error);
         setVehicles([]);
       } else {
         setVehicles(result.data);
@@ -144,11 +149,11 @@ export default function NewShipmentPage() {
 
   function next() {
     if (!stepValid) {
-      setError("Заполните обязательные поля текущего шага.");
+      setError("requiredFields");
       return;
     }
     if (step === 0 && form.from.trim().toLocaleLowerCase("ru") === form.to.trim().toLocaleLowerCase("ru")) {
-      setError("Город отправления и назначения должны отличаться.");
+      setError("differentCities");
       return;
     }
     setError("");
@@ -172,7 +177,7 @@ export default function NewShipmentPage() {
       price: form.price.trim(),
     });
     if (result.error) {
-      setError(result.error.message);
+      setError(result.error);
       setSaving(false);
       return;
     }
@@ -189,14 +194,14 @@ export default function NewShipmentPage() {
         className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900"
       >
         <ArrowLeft size={16} />
-        Назад к перевозкам
+        {m("backToShipments")}
       </Link>
 
       <div className="mt-6">
-        <p className="text-xs font-bold uppercase tracking-[.16em] text-teal-700">RohBar · новая заявка</p>
-        <h1 className="mt-2 text-3xl font-black">Создать заявку</h1>
+        <p className="text-xs font-bold uppercase tracking-[.16em] text-teal-700">{m("newShipmentEyebrow")}</p>
+        <h1 className="mt-2 text-3xl font-black">{m("createShipment")}</h1>
         <p className="mt-2 text-sm text-slate-500">
-          Укажите груз, а RohBar покажет конкретные автомобили с реальным остатком вместимости.
+          {m("newShipmentDescription")}
         </p>
         <div className="mt-6 grid grid-cols-5 gap-2">
           {steps.map((label, index) => (
@@ -211,21 +216,21 @@ export default function NewShipmentPage() {
       <Card className="mt-7">
         {step === 0 && (
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Откуда" required>
+            <Field label={m("from")} required>
               <input
                 className={inputClass}
                 value={form.from}
                 onChange={(event) => set("from", event.target.value)}
-                placeholder="Москва"
+                placeholder={m("moscow")}
                 autoComplete="address-level2"
               />
             </Field>
-            <Field label="Куда" required>
+            <Field label={m("to")} required>
               <input
                 className={inputClass}
                 value={form.to}
                 onChange={(event) => set("to", event.target.value)}
-                placeholder="Казань"
+                placeholder={m("kazan")}
                 autoComplete="address-level2"
               />
             </Field>
@@ -235,15 +240,15 @@ export default function NewShipmentPage() {
         {step === 1 && (
           <div className="space-y-6">
             <div className="grid gap-5 sm:grid-cols-2">
-              <Field label="Груз" required>
+              <Field label={m("cargo")} required>
                 <input
                   className={inputClass}
                   value={form.cargo}
                   onChange={(event) => set("cargo", event.target.value)}
-                  placeholder="Строительные материалы"
+                  placeholder={m("cargoPlaceholder")}
                 />
               </Field>
-              <Field label="Вес" required>
+              <Field label={m("weight")} required>
                 <div className="grid grid-cols-[1fr_92px] gap-2">
                   <input
                     className={inputClass}
@@ -255,67 +260,67 @@ export default function NewShipmentPage() {
                     onChange={(event) => set("weight", event.target.value)}
                     placeholder={form.weightUnit === "t" ? "20" : "20000"}
                   />
-                  <select className={inputClass} value={form.weightUnit} onChange={(event) => set("weightUnit", event.target.value as WeightUnit)}>
-                    <option value="kg">кг</option>
-                    <option value="t">тонн</option>
+                  <select aria-label={m("weightUnit")} className={inputClass} value={form.weightUnit} onChange={(event) => set("weightUnit", event.target.value as WeightUnit)}>
+                    <option value="kg">{m("kg")}</option>
+                    <option value="t">{m("tonnes")}</option>
                   </select>
                 </div>
               </Field>
             </div>
             <div>
-              <p className="mb-3 text-sm font-bold text-slate-700">Объём груза</p>
+              <p className="mb-3 text-sm font-bold text-slate-700">{m("cargoVolume")}</p>
               <div className="grid gap-3 md:grid-cols-3">
                 <VolumeChoice
                   active={form.volumeMode === "known"}
-                  title="Объём известен"
-                  text="Укажите точный объём в м³."
+                  title={m("knownVolume")}
+                  text={m("knownVolumeHelp")}
                   onClick={() => set("volumeMode", "known")}
                 />
                 <VolumeChoice
                   active={form.volumeMode === "calculate"}
-                  title="Рассчитать"
-                  text="Введите размеры одного места и количество."
+                  title={m("calculate")}
+                  text={m("calculateHelp")}
                   onClick={() => set("volumeMode", "calculate")}
                 />
                 <VolumeChoice
                   active={form.volumeMode === "unknown"}
-                  title="Не знаю объём"
-                  text="Подбор будет выполнен только по весу."
+                  title={m("unknownVolume")}
+                  text={m("unknownVolumeHelp")}
                   onClick={() => set("volumeMode", "unknown")}
                 />
               </div>
             </div>
 
             {form.volumeMode === "known" && (
-              <Field label="Объём, м³" required>
+              <Field label={m("volumeM3")} required>
                 <input className={inputClass} type="number" min="0.001" step="0.001" inputMode="decimal" value={form.volumeM3} onChange={(event) => set("volumeM3", event.target.value)} placeholder="12.5" />
               </Field>
             )}
 
             {form.volumeMode === "calculate" && (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="Длина места, см" required>
+                <Field label={m("packageLength")} required>
                   <input className={inputClass} type="number" min="1" step="0.1" value={form.lengthCm} onChange={(event) => set("lengthCm", event.target.value)} />
                 </Field>
-                <Field label="Ширина, см" required>
+                <Field label={m("width")} required>
                   <input className={inputClass} type="number" min="1" step="0.1" value={form.widthCm} onChange={(event) => set("widthCm", event.target.value)} />
                 </Field>
-                <Field label="Высота, см" required>
+                <Field label={m("height")} required>
                   <input className={inputClass} type="number" min="1" step="0.1" value={form.heightCm} onChange={(event) => set("heightCm", event.target.value)} />
                 </Field>
-                <Field label="Количество" required>
+                <Field label={m("quantity")} required>
                   <input className={inputClass} type="number" min="1" step="1" value={form.quantity} onChange={(event) => set("quantity", event.target.value)} />
                 </Field>
                 <div className="sm:col-span-2 lg:col-span-4 rounded-2xl bg-teal-50 p-4 text-sm text-teal-800">
                   <Ruler size={17} className="mr-2 inline" />
-                  Расчётный объём: <strong>{formatVolumeLiters(calculatedVolumeLiters)}</strong>. Это приблизительное значение по габаритам мест.
+                  {m("calculatedVolume")} <strong>{formatVolumeLiters(calculatedVolumeLiters, locale)}</strong>. {m("calculatedVolumeHelp")}
                 </div>
               </div>
             )}
 
             {form.volumeMode === "unknown" && (
               <div className="rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-800">
-                Объём не обязателен. RohBar отфильтрует машины по весу, но окончательную совместимость по объёму должен подтвердить перевозчик.
+                {m("volumeOptional")}
               </div>
             )}
           </div>
@@ -324,7 +329,7 @@ export default function NewShipmentPage() {
         {step === 2 && (
           <div className="space-y-6">
             <div>
-              <p className="mb-3 text-sm font-bold text-slate-700">Предпочтительный тип кузова</p>
+              <p className="mb-3 text-sm font-bold text-slate-700">{m("preferredBody")}</p>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <button
                   type="button"
@@ -332,10 +337,10 @@ export default function NewShipmentPage() {
                   className={`rounded-2xl border p-4 text-left transition ${!form.bodyCode ? "border-teal-600 bg-teal-50 ring-2 ring-teal-100" : "border-slate-200 hover:border-slate-300"}`}
                 >
                   <PackageOpen size={21} className="text-teal-700" />
-                  <p className="mt-3 text-sm font-black">Любой подходящий</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">Показывать все машины, где хватает вместимости.</p>
+                  <p className="mt-3 text-sm font-black">{m("anySuitable")}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">{m("anySuitableHelp")}</p>
                 </button>
-                {vehicleBodyTypes.map((item) => (
+                {getVehicleBodyTypes(locale).map((item) => (
                   <button
                     key={item.code}
                     type="button"
@@ -356,16 +361,16 @@ export default function NewShipmentPage() {
                 onClick={() => set("vehicleMode", "specific")}
                 className={`rounded-2xl border p-4 text-left transition ${form.vehicleMode === "specific" ? "border-teal-600 bg-teal-50 ring-2 ring-teal-100" : "border-slate-200"}`}
               >
-                <p className="font-black">Выбрать конкретный автомобиль</p>
-                <p className="mt-1 text-sm text-slate-500">RohBar сразу зарезервирует указанную вместимость этой машины.</p>
+                <p className="font-black">{m("chooseVehicle")}</p>
+                <p className="mt-1 text-sm text-slate-500">{m("chooseVehicleHelp")}</p>
               </button>
               <button
                 type="button"
                 onClick={() => set("vehicleMode", "marketplace")}
                 className={`rounded-2xl border p-4 text-left transition ${form.vehicleMode === "marketplace" ? "border-teal-600 bg-teal-50 ring-2 ring-teal-100" : "border-slate-200"}`}
               >
-                <p className="font-black">Получить предложения перевозчиков</p>
-                <p className="mt-1 text-sm text-slate-500">Заявка будет опубликована без предварительной брони конкретной машины.</p>
+                <p className="font-black">{m("receiveOffers")}</p>
+                <p className="mt-1 text-sm text-slate-500">{m("receiveOffersHelp")}</p>
               </button>
             </div>
 
@@ -373,10 +378,10 @@ export default function NewShipmentPage() {
               <div>
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h2 className="font-black">Доступные автомобили</h2>
-                    <p className="mt-1 text-sm text-slate-500">Нужен вес {formatWeightKg(weightKg)}{calculatedVolumeLiters ? ` · объём ${formatVolumeLiters(calculatedVolumeLiters)}` : " · объём не указан"}.</p>
+                    <h2 className="font-black">{m("availableVehicles")}</h2>
+                    <p className="mt-1 text-sm text-slate-500">{m("requiredWeight", { weight: formatWeightKg(weightKg, locale) })}{calculatedVolumeLiters ? m("requiredVolume", { volume: formatVolumeLiters(calculatedVolumeLiters, locale) }) : m("volumeUnspecified")}.</p>
                   </div>
-                  {loadingVehicles && <span className="text-sm font-semibold text-slate-400">Обновляем…</span>}
+                  {loadingVehicles && <span className="text-sm font-semibold text-slate-400">{m("refreshing")}</span>}
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   {vehicles.map((vehicle) => (
@@ -390,7 +395,7 @@ export default function NewShipmentPage() {
                 </div>
                 {!loadingVehicles && vehicles.length === 0 && (
                   <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">
-                    Подходящих автомобилей сейчас нет. Измените тип кузова либо выберите режим «Получить предложения перевозчиков».
+                    {m("noVehicles")}
                   </div>
                 )}
               </div>
@@ -398,7 +403,7 @@ export default function NewShipmentPage() {
 
             {form.vehicleMode === "marketplace" && (
               <div className="rounded-2xl bg-slate-50 p-5 text-sm leading-6 text-slate-600">
-                Перевозчики увидят требуемый вес, объём и выбранный тип кузова и смогут предложить конкретную машину из своего автопарка.
+                {m("marketplaceHelp")}
               </div>
             )}
           </div>
@@ -406,7 +411,7 @@ export default function NewShipmentPage() {
 
         {step === 3 && (
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Дата погрузки" required>
+            <Field label={m("loadingDate")} required>
               <input
                 type="date"
                 className={inputClass}
@@ -414,7 +419,7 @@ export default function NewShipmentPage() {
                 onChange={(event) => set("date", event.target.value)}
               />
             </Field>
-            <Field label="Бюджет" required>
+            <Field label={m("budget")} required>
               <input
                 className={inputClass}
                 value={form.price}
@@ -428,27 +433,28 @@ export default function NewShipmentPage() {
 
         {step === 4 && (
           <div>
-            <h2 className="text-lg font-black">Проверьте заявку</h2>
+            <h2 className="text-lg font-black">{m("reviewShipment")}</h2>
             <div className="mt-4 grid gap-4 rounded-2xl bg-slate-50 p-5 sm:grid-cols-2">
-              <Summary label="Маршрут" value={`${form.from} → ${form.to}`} />
-              <Summary label="Груз" value={`${form.cargo} · ${formatWeightKg(weightKg)}`} />
-              <Summary label="Объём" value={calculatedVolumeLiters ? `${formatVolumeLiters(calculatedVolumeLiters)}${form.volumeMode === "calculate" ? " (расчётный)" : ""}` : "Не указан"} />
-              <Summary label="Тип кузова" value={form.bodyCode ? bodyType(form.bodyCode).label : "Любой подходящий"} />
+              <Summary label={m("route")} value={`${form.from} → ${form.to}`} />
+              <Summary label={m("cargo")} value={`${form.cargo} · ${formatWeightKg(weightKg, locale)}`} />
+              <Summary label={m("volume")} value={calculatedVolumeLiters ? (form.volumeMode === "calculate" ? m("estimated", { volume: formatVolumeLiters(calculatedVolumeLiters, locale) }) : formatVolumeLiters(calculatedVolumeLiters, locale)) : m("notSpecified")} />
+              <Summary label={m("bodyType")} value={form.bodyCode ? bodyType(form.bodyCode, locale).label : m("anySuitable")} />
               <Summary
-                label="Автомобиль"
+                label={m("vehicle")}
                 value={
                   form.vehicleMode === "specific" && selectedVehicle
-                    ? `${selectedVehicle.plate} · ${selectedVehicle.model} · ${selectedVehicle.body}`
-                    : "Подберёт перевозчик"
+                    ? `${selectedVehicle.plate} · ${selectedVehicle.model} · ${formatProductValue(selectedVehicle.body, locale)}`
+                    : m("carrierWillChoose")
                 }
               />
-              <Summary label="Дата" value={form.date} />
-              <Summary label="Бюджет" value={form.price} />
+              <Summary label={m("date")} value={formatDate(form.date, locale)} />
+              <Summary label={m("budget")} value={form.price} />
             </div>
             {form.vehicleMode === "specific" && selectedVehicle && (
               <div className="mt-4 rounded-2xl bg-teal-50 p-4 text-sm leading-6 text-teal-800">
-                После публикации RohBar создаст предварительную бронь на {formatWeightKg(weightKg)}
-                {calculatedVolumeLiters ? ` и ${formatVolumeLiters(calculatedVolumeLiters)}` : ""} в выбранном автомобиле.
+                {calculatedVolumeLiters
+                  ? m("reserveWeightVolume", { weight: formatWeightKg(weightKg, locale), volume: formatVolumeLiters(calculatedVolumeLiters, locale) })
+                  : m("reserveWeight", { weight: formatWeightKg(weightKg, locale) })}
               </div>
             )}
           </div>
@@ -456,23 +462,23 @@ export default function NewShipmentPage() {
 
         {error && (
           <p role="alert" className="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-            {error}
+            {typeof error === "string" ? m(error) : formatError(error, locale)}
           </p>
         )}
 
         <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
           {step > 0 ? (
             <Button variant="secondary" onClick={() => { setError(""); setStep((current) => current - 1); }}>
-              Назад
+              {m("back")}
             </Button>
           ) : (
             <span />
           )}
           {step < steps.length - 1 ? (
-            <Button onClick={next}>Продолжить</Button>
+            <Button onClick={next}>{m("continue")}</Button>
           ) : (
             <Button disabled={saving} onClick={publish}>
-              {saving ? "Публикация…" : "Опубликовать заявку"}
+              {saving ? m("publishing") : m("publish")}
             </Button>
           )}
         </div>
@@ -512,7 +518,8 @@ function VehicleChoice({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const fallback = bodyType(vehicle.bodyCode);
+  const { m, locale } = useMessages(shipmentMessages);
+  const fallback = bodyType(vehicle.bodyCode, locale);
   const freeVolume = vehicle.remainingVolumeLiters;
   return (
     <button
@@ -532,7 +539,7 @@ function VehicleChoice({
       <div className="p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-teal-700">{vehicle.body}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-teal-700">{formatProductValue(vehicle.body, locale)}</p>
             <h3 className="mt-1 font-black">{vehicle.model}</h3>
             <p className="mt-1 text-sm font-semibold text-slate-500">
               {vehicle.plate}{vehicle.year ? ` · ${vehicle.year}` : ""}
@@ -540,20 +547,20 @@ function VehicleChoice({
           </div>
           {selected && <Check className="text-teal-700" size={20} />}
         </div>
-        <p className="mt-3 text-xs text-slate-500">Перевозчик: {vehicle.carrierName}</p>
+        <p className="mt-3 text-xs text-slate-500">{m("carrierName", { name: vehicle.carrierName })}</p>
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-          <VehicleMetric label="Свободно по весу" value={formatWeightKg(vehicle.remainingWeightKg)} />
-          <VehicleMetric label="Свободно по объёму" value={formatVolumeLiters(freeVolume)} />
+          <VehicleMetric label={m("remainingWeight")} value={formatWeightKg(vehicle.remainingWeightKg, locale)} />
+          <VehicleMetric label={m("remainingVolume")} value={formatVolumeLiters(freeVolume, locale)} />
           <div className="col-span-2">
             <VehicleMetric
-              label="Внутренние размеры"
-              value={formatDimensions(vehicle.lengthMm, vehicle.widthMm, vehicle.heightMm)}
+              label={m("internalDimensions")}
+              value={formatDimensions(vehicle.lengthMm, vehicle.widthMm, vehicle.heightMm, locale)}
             />
           </div>
         </div>
         {vehicle.pendingReservations > 0 && (
           <div className="mt-4 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">
-            Уже есть предварительных броней: {vehicle.pendingReservations}. Показанный остаток уже учитывает их.
+            {m("reservations", { count: vehicle.pendingReservations })}
           </div>
         )}
       </div>
@@ -570,25 +577,26 @@ function VehicleMetric({ label, value }: { label: string; value: string }) {
   );
 }
 function Success({ shipment }: { shipment: Shipment }) {
+  const { m } = useMessages(shipmentMessages);
   return (
     <Card className="mx-auto mt-10 max-w-xl text-center">
       <div className="mx-auto grid size-16 place-items-center rounded-full bg-emerald-50 text-emerald-700">
         <Check size={30} />
       </div>
-      <h1 className="mt-5 text-2xl font-black">Заявка опубликована</h1>
+      <h1 className="mt-5 text-2xl font-black">{m("shipmentPublished")}</h1>
       <p className="mt-2 text-sm leading-6 text-slate-500">
         {shipment.id} · {shipment.from} → {shipment.to}.
       </p>
       {shipment.selectedVehicleId ? (
         <p className="mt-3 rounded-2xl bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-800">
-          Вместимость выбранного автомобиля предварительно зарезервирована для этой заявки.
+          {m("capacityReserved")}
         </p>
       ) : (
-        <p className="mt-3 text-sm text-slate-500">Перевозчики смогут предложить подходящий автомобиль.</p>
+        <p className="mt-3 text-sm text-slate-500">{m("carriersCanOffer")}</p>
       )}
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-        <Button href={`/shipments/${shipment.id}`}>Открыть заявку</Button>
-        <Button href="/shipments" variant="secondary">К перевозкам</Button>
+        <Button href={`/shipments/${shipment.id}`}>{m("openShipment")}</Button>
+        <Button href="/shipments" variant="secondary">{m("toShipments")}</Button>
       </div>
     </Card>
   );

@@ -6,38 +6,43 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, BriefcaseBusiness, Truck, UserRound } from "lucide-react";
 import { Button, Card, Field, inputClass } from "@/components/rohbar-ui";
 import { api } from "@/lib/api";
+import { accountMessages } from "@/lib/messages/account";
+import { formatError } from "@/lib/i18n";
+import type { ApiError } from "@/types/api";
+import { useMessages } from "@/lib/i18n-context";
 import { setStoredRole } from "@/lib/session";
 import type { Role } from "@/types";
 
 type RegistrationRole = Exclude<Role, "admin">;
 
-const roles: Array<{
-  id: RegistrationRole;
-  title: string;
-  description: string;
-  icon: typeof BriefcaseBusiness;
-}> = [
-  {
-    id: "customer",
-    title: "Заказчик",
-    description: "Создавайте заявки и выбирайте перевозчиков.",
-    icon: BriefcaseBusiness,
-  },
-  {
-    id: "carrier",
-    title: "Перевозчик",
-    description: "Находите загрузки и управляйте автопарком.",
-    icon: Truck,
-  },
-  {
-    id: "driver",
-    title: "Водитель",
-    description: "Получайте назначенные рейсы и управляйте поездками.",
-    icon: UserRound,
-  },
-];
-
 export default function RegisterPage() {
+  const { m, locale } = useMessages(accountMessages);
+  const roles: Array<{
+    id: RegistrationRole;
+    title: string;
+    description: string;
+    icon: typeof BriefcaseBusiness;
+  }> = [
+    {
+      id: "customer",
+      title: m("customer"),
+      description: m("customerDescription"),
+      icon: BriefcaseBusiness,
+    },
+    {
+      id: "carrier",
+      title: m("carrier"),
+      description: m("carrierDescription"),
+      icon: Truck,
+    },
+    {
+      id: "driver",
+      title: m("driver"),
+      description: m("driverDescription"),
+      icon: UserRound,
+    },
+  ];
+
   const router = useRouter();
   const [role, setRole] = useState<RegistrationRole>("customer");
   const [name, setName] = useState("");
@@ -45,13 +50,13 @@ export default function RegisterPage() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | keyof typeof accountMessages | "">("");
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
     if (password.length < 15) {
-      setError("Пароль должен содержать минимум 15 символов.");
+      setError("passwordTooShort");
       return;
     }
     setBusy(true);
@@ -63,7 +68,7 @@ export default function RegisterPage() {
       phone: phone.trim() || undefined,
     });
     if (result.error) {
-      setError(result.error.message);
+      setError(result.error);
       setBusy(false);
       return;
     }
@@ -81,8 +86,8 @@ export default function RegisterPage() {
     <main className="mx-auto min-h-[calc(100vh-7rem)] max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
       <div className="mb-8 text-center">
         <p className="text-xs font-black uppercase tracking-[.18em] text-teal-700">RohBar</p>
-        <h1 className="mt-2 text-3xl font-black sm:text-4xl">Создать аккаунт</h1>
-        <p className="mt-2 text-sm text-slate-500">Выберите роль, с которой вы будете работать в RohBar.</p>
+        <h1 className="mt-2 text-3xl font-black sm:text-4xl">{m("createAccount")}</h1>
+        <p className="mt-2 text-sm text-slate-500">{m("chooseRole")}</p>
       </div>
       <form onSubmit={submit}>
         <div className="grid gap-3 md:grid-cols-3">
@@ -106,7 +111,7 @@ export default function RegisterPage() {
 
         <Card className="mt-5">
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Имя" required>
+            <Field label={m("name")} required>
               <input
                 className={inputClass}
                 required
@@ -115,10 +120,10 @@ export default function RegisterPage() {
                 autoComplete="name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Ваше имя"
+                placeholder={m("yourName")}
               />
             </Field>
-            <Field label="Email" required>
+            <Field label={m("email")} required>
               <input
                 className={inputClass}
                 required
@@ -130,7 +135,7 @@ export default function RegisterPage() {
                 placeholder="name@company.ru"
               />
             </Field>
-            <Field label="Телефон">
+            <Field label={m("phone")}>
               <input
                 className={inputClass}
                 type="tel"
@@ -140,7 +145,7 @@ export default function RegisterPage() {
                 placeholder="+7 900 000-00-00"
               />
             </Field>
-            <Field label="Пароль" required>
+            <Field label={m("password")} required>
               <input
                 className={inputClass}
                 required
@@ -150,27 +155,27 @@ export default function RegisterPage() {
                 autoComplete="new-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder="Минимум 15 символов"
+                placeholder={m("minPassword")}
                 aria-describedby="password-help"
               />
               <p id="password-help" className="mt-2 text-xs leading-5 text-slate-500">
-                Минимум 15 символов. Кнопка покажет ошибку, если пароль слишком короткий.
+                {m("passwordHelp")}
               </p>
             </Field>
           </div>
 
           {error && (
             <p role="alert" className="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-              {error}
+              {typeof error === "string" ? m(error) : formatError(error, locale)}
             </p>
           )}
 
           <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center">
             <Button type="submit" disabled={busy}>
-              {busy ? "Создание…" : "Создать аккаунт"}<ArrowRight size={17} />
+              {busy ? m("creating") : m("createAccount")}<ArrowRight size={17} />
             </Button>
             <Link href="/login" className="text-center text-sm font-bold text-teal-700">
-              Уже есть аккаунт? Войти
+              {m("hasAccount")}
             </Link>
           </div>
         </Card>

@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowLeft, CheckCircle2, MapPin, Package, Truck } from "lucide-react";
 import { Button, Card, PageHeader, StatusBadge } from "@/components/rohbar-ui";
+import { useMessages } from "@/lib/i18n-context";
+import { operationMessages } from "@/lib/messages/operations";
+import { formatError, formatProductValue, formatDate } from "@/lib/i18n";
+import type { ApiError } from "@/types/api";
 import { api } from "@/lib/api";
 import type { Shipment, ShipmentStatus } from "@/types";
 
@@ -13,24 +17,25 @@ const nextStatus: Partial<Record<ShipmentStatus, ShipmentStatus>> = {
   delivered: "completed",
 };
 
-const actionLabel: Partial<Record<ShipmentStatus, string>> = {
-  accepted: "Начать рейс",
-  in_transit: "Подтвердить доставку",
-  delivered: "Завершить рейс",
+const actionLabel: Partial<Record<ShipmentStatus, keyof typeof operationMessages>> = {
+  accepted: "startTrip",
+  in_transit: "confirmDelivery",
+  delivered: "finishTrip",
 };
 
 export default function DriverShipment({ params }: { params: Promise<{ id: string }> }) {
+  const { m, locale } = useMessages(operationMessages);
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | string>("");
 
   useEffect(() => {
     let active = true;
     void params.then(async ({ id }) => {
       const result = await api.shipments.get(id);
       if (!active) return;
-      if (result.error) setError(result.error.message);
+      if (result.error) setError(result.error);
       else setShipment(result.data);
       setLoading(false);
     });
@@ -47,7 +52,7 @@ export default function DriverShipment({ params }: { params: Promise<{ id: strin
     setBusy(true);
     setError("");
     const result = await api.shipments.status(shipment.id, status);
-    if (result.error) setError(result.error.message);
+    if (result.error) setError(result.error);
     else setShipment(result.data);
     setBusy(false);
   }
@@ -55,7 +60,7 @@ export default function DriverShipment({ params }: { params: Promise<{ id: strin
   if (loading) {
     return (
       <div className="mx-auto max-w-5xl">
-        <Card>Загрузка рейса…</Card>
+        <Card>{m("loadingTrip")}</Card>
       </div>
     );
   }
@@ -64,9 +69,9 @@ export default function DriverShipment({ params }: { params: Promise<{ id: strin
     return (
       <div className="mx-auto max-w-5xl">
         <Card>
-          <h1 className="text-xl font-black">Рейс недоступен</h1>
-          <p className="mt-2 text-sm text-slate-500">{error || "Перевозка не найдена."}</p>
-          <Button href="/driver" variant="secondary" className="mt-5">Мои рейсы</Button>
+          <h1 className="text-xl font-black">{m("tripUnavailable")}</h1>
+          <p className="mt-2 text-sm text-slate-500">{error ? formatError(error, locale) : m("shipmentNotFound")}</p>
+          <Button href="/driver" variant="secondary" className="mt-5">{m("myTrips")}</Button>
         </Card>
       </div>
     );
@@ -78,17 +83,16 @@ export default function DriverShipment({ params }: { params: Promise<{ id: strin
     <div className="mx-auto max-w-5xl">
       <Link href="/driver" className="inline-flex items-center gap-2 text-sm font-bold text-slate-500">
         <ArrowLeft size={16} />
-        Мои рейсы
-      </Link>
+         {m("myTrips")} </Link>
       <PageHeader
-        eyebrow="RohBar · рейс"
+        eyebrow={m("tripEyebrow")}
         title={`${shipment.from} → ${shipment.to}`}
         description={`${shipment.id} · ${shipment.cargo} · ${shipment.weight}`}
       />
 
       {error && (
         <p role="alert" className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-          {error}
+          {formatError(error, locale)}
         </p>
       )}
 
@@ -97,50 +101,48 @@ export default function DriverShipment({ params }: { params: Promise<{ id: strin
           <Card>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold text-slate-400">Текущий статус</p>
+                <p className="text-xs font-bold text-slate-400">{m("currentStatus")}</p>
                 <div className="mt-2"><StatusBadge status={shipment.status} /></div>
               </div>
               <Truck className="text-teal-700" size={30} />
             </div>
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <Info icon={<MapPin />} label="Погрузка" value={`${shipment.from} · ${shipment.date}`} />
-              <Info icon={<MapPin />} label="Выгрузка" value={shipment.to} />
-              <Info icon={<Package />} label="Груз" value={`${shipment.cargo} · ${shipment.weight}`} />
-              <Info icon={<Truck />} label="Транспорт" value={shipment.vehicle} />
+              <Info icon={<MapPin />} label={m("loadingCargo")} value={`${shipment.from} · ${formatDate(shipment.date, locale)}`} />
+              <Info icon={<MapPin />} label={m("unloadingCargo")} value={shipment.to} />
+              <Info icon={<Package />} label={m("cargo")} value={`${shipment.cargo} · ${shipment.weight}`} />
+              <Info icon={<Truck />} label={m("transport")} value={formatProductValue(shipment.vehicle, locale)} />
             </div>
           </Card>
 
           <Card>
-            <h2 className="text-lg font-black">Обновление статуса</h2>
+            <h2 className="text-lg font-black">{m("statusUpdate")}</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Изменение статуса сохраняется backend и автоматически фиксируется в истории рейса.
-            </p>
+               {m("statusHistoryHelp")} </p>
             {next ? (
               <Button className="mt-5 w-full sm:w-auto" onClick={changeStatus} disabled={busy}>
-                {busy ? "Сохранение…" : actionLabel[shipment.status]}
+                {busy ? m("saving") : m(actionLabel[shipment.status] ?? "statusUpdate")}
               </Button>
             ) : (
               <p className="mt-5 text-sm font-semibold text-slate-600">
-                Для текущего статуса действие водителя не требуется.
-              </p>
+                 {m("noDriverAction")} </p>
             )}
           </Card>
         </div>
 
         <aside className="space-y-6">
           <Card>
-            <h2 className="font-black">Информация рейса</h2>
-            <p className="mt-2 text-sm text-slate-500">Заказчик</p>
+            <h2 className="font-black">{m("tripInfo")}</h2>
+            <p className="mt-2 text-sm text-slate-500">{m("customer")}</p>
             <p className="mt-1 font-bold">{shipment.company}</p>
-            <p className="mt-4 text-sm text-slate-500">Стоимость</p>
+            <p className="mt-4 text-sm text-slate-500">{m("price")}</p>
             <p className="mt-1 text-xl font-black">{shipment.price}</p>
           </Card>
           <Card>
             <div className="flex items-center gap-3">
               <CheckCircle2 className="text-teal-700" />
               <div>
-                <p className="font-black">{shipment.status === "completed" ? "Рейс завершён" : "Статус синхронизирован"}</p>
-                <p className="text-sm text-slate-500">Источник данных — API RohBar.</p>
+                <p className="font-black">{shipment.status === "completed" ? m("tripCompleted") : m("statusSynced")}</p>
+                <p className="text-sm text-slate-500">{m("dataSource")}</p>
               </div>
             </div>
           </Card>

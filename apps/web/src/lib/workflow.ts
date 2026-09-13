@@ -1,4 +1,6 @@
-import type { ShipmentStatus, Role } from "@/types";
+import { statusLabel } from "@/lib/i18n";
+import { commonMessages } from "@/lib/messages/common";
+import type { Locale, ShipmentStatus, Role } from "@/types";
 
 export type WorkflowAction = "publish" | "accept_offer" | "start_trip" | "mark_delivered" | "complete";
 
@@ -27,11 +29,9 @@ export function nextStatus(status: ShipmentStatus, action: WorkflowAction): Ship
   return transitions[status][action] ?? null;
 }
 
-export const statusSteps: { key: ShipmentStatus; label: string }[] = [
-  { key: "published", label: "Опубликована" },
-  { key: "offered", label: "Предложения" },
-  { key: "accepted", label: "Перевозчик выбран" },
-  { key: "in_transit", label: "В пути" },
-  { key: "delivered", label: "Доставлена" },
-  { key: "completed", label: "Завершена" },
-];
+export function getStatusSteps(locale: Locale) {
+  return (["published", "offered", "accepted", "in_transit", "delivered", "completed"] as const).map(key => ({
+    key,
+    label: key === "accepted" ? commonMessages.carrierSelected[locale] : statusLabel(key, locale),
+  }));
+}

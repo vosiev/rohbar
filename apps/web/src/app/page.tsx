@@ -1,55 +1,58 @@
+"use client";
+
 import Link from "next/link";
 import { ArrowRight, BriefcaseBusiness, ShieldCheck, Truck, UserRound, Zap } from "lucide-react";
-import { dictionary } from "@/lib/i18n";
+import { useMessages } from "@/lib/i18n-context";
+import { commonMessages } from "@/lib/messages/common";
 
 export default function Home() {
-  const t = dictionary.ru;
+  const { m, text } = useMessages(commonMessages);
   return (
     <div className="mx-auto max-w-7xl">
       <section className="grid gap-8 py-8 lg:grid-cols-[1.15fr_.85fr] lg:items-center lg:py-16">
         <div>
           <div className="mb-5 inline-flex items-center gap-2 rounded-full border bg-white px-3 py-1.5 text-sm font-semibold text-teal-800">
-            <Zap size={15} /> Цифровая логистика
+            <Zap size={15} /> {m("logistics")}
           </div>
-          <h1 className="max-w-3xl text-4xl font-black tracking-tight sm:text-6xl">{t.heroTitle}</h1>
-          <p className="mt-5 max-w-2xl text-lg leading-8 text-gray-600">{t.heroText}</p>
+          <h1 className="max-w-3xl text-4xl font-black tracking-tight sm:text-6xl">{text("heroTitle")}</h1>
+          <p className="mt-5 max-w-2xl text-lg leading-8 text-gray-600">{text("heroText")}</p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link
               href="/register"
               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-teal-700 px-6 py-3.5 font-bold text-white"
             >
-              Начать работу <ArrowRight size={18} />
+              {m("getStarted")} <ArrowRight size={18} />
             </Link>
             <Link
               href="/login"
               className="inline-flex items-center justify-center gap-2 rounded-2xl border bg-white px-6 py-3.5 font-bold"
             >
-              Войти
+              {text("login")}
             </Link>
           </div>
         </div>
 
         <div className="rounded-3xl border bg-white p-5 shadow-sm sm:p-7">
-          <p className="text-xs font-black uppercase tracking-[.18em] text-teal-700">Одна платформа</p>
-          <h2 className="mt-2 text-2xl font-black">Для всех участников перевозки</h2>
+          <p className="text-xs font-black uppercase tracking-[.18em] text-teal-700">{m("onePlatform")}</p>
+          <h2 className="mt-2 text-2xl font-black">{m("participants")}</h2>
           <p className="mt-2 text-sm leading-6 text-slate-500">
-            Каждый аккаунт получает только те инструменты и данные, которые соответствуют его роли.
+            {m("roleTools")}
           </p>
           <div className="mt-6 space-y-3">
             <RoleRow
               icon={<BriefcaseBusiness size={18} />}
-              title="Заказчик"
-              text="Создание заявок, предложения перевозчиков и контроль доставки."
+              title={text("customer")}
+              text={m("customerTools")}
             />
             <RoleRow
               icon={<Truck size={18} />}
-              title="Перевозчик"
-              text="Поиск загрузок, предложения, автопарк и назначение водителей."
+              title={text("carrier")}
+              text={m("carrierTools")}
             />
             <RoleRow
               icon={<UserRound size={18} />}
-              title="Водитель"
-              text="Назначенные рейсы и последовательное обновление статуса."
+              title={m("driver")}
+              text={m("driverTools")}
             />
           </div>
         </div>
@@ -58,18 +61,18 @@ export default function Home() {
       <section className="grid gap-4 pb-12 sm:grid-cols-3">
         <Feature
           icon={<Truck />}
-          title="Живые данные"
-          text="Заявки, предложения, автопарк и рейсы сохраняются в backend RohBar."
+          title={m("liveData")}
+          text={m("liveDataText")}
         />
         <Feature
           icon={<ShieldCheck />}
-          title="Ролевой доступ"
-          text="Права проверяются на сервере, а интерфейс показывает только разрешённые действия."
+          title={m("roleAccess")}
+          text={m("roleAccessText")}
         />
         <Feature
           icon={<Zap />}
-          title="События и уведомления"
-          text="Ключевые изменения фиксируются в истории и создают уведомления участникам."
+          title={m("events")}
+          text={m("eventsText")}
         />
       </section>
     </div>

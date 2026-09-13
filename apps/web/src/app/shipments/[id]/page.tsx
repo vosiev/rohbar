@@ -5,23 +5,28 @@ import { ArrowLeft, CheckCircle2, Clock3, MapPin, Package, Truck, UserRound } fr
 import { useEffect, useState } from "react";
 import { Button, Card, StatusBadge } from "@/components/rohbar-ui";
 import { api } from "@/lib/api";
+import { useMessages } from "@/lib/i18n-context";
+import { shipmentMessages } from "@/lib/messages/shipments";
+import { formatError, formatDate, formatProductValue } from "@/lib/i18n";
+import type { ApiError } from "@/types/api";
 import type { Role, Shipment, ShipmentEvent } from "@/types";
 
-const eventLabels: Record<string, string> = {
-  "shipment.created": "Заявка опубликована",
-  "offer.created": "Получено новое предложение",
-  "offer.accepted": "Предложение перевозчика принято",
-  "driver.assigned": "Назначен водитель",
-  "shipment.status_changed": "Статус перевозки изменён",
-};
-
 export default function ShipmentDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { m, locale } = useMessages(shipmentMessages);
+  const eventLabels: Record<string, string> = {
+    "shipment.created": m("shipmentPublished"),
+    "shipment.cancelled": m("shipmentCancelled"),
+    "offer.created": m("newOfferReceived"),
+    "offer.accepted": m("carrierOfferAccepted"),
+    "driver.assigned": m("driverAssigned"),
+    "shipment.status_changed": m("shipmentStatusChanged"),
+  };
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [events, setEvents] = useState<ShipmentEvent[]>([]);
   const [role, setRole] = useState<Role | null>(null);
   const [offerCount, setOfferCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | string>("");
 
   useEffect(() => {
     let active = true;
@@ -35,7 +40,7 @@ export default function ShipmentDetail({ params }: { params: Promise<{ id: strin
       if (!active) return;
 
       if (shipmentResult.error) {
-        setError(shipmentResult.error.message);
+        setError(shipmentResult.error);
         setLoading(false);
         return;
       }
@@ -63,7 +68,7 @@ export default function ShipmentDetail({ params }: { params: Promise<{ id: strin
     return (
       <div className="mx-auto max-w-5xl">
         <Card>
-          <p className="text-sm font-semibold text-slate-500">Загружаем перевозку…</p>
+          <p className="text-sm font-semibold text-slate-500">{m("loadingShipment")}</p>
         </Card>
       </div>
     );
@@ -73,10 +78,10 @@ export default function ShipmentDetail({ params }: { params: Promise<{ id: strin
     return (
       <div className="mx-auto max-w-5xl">
         <Card>
-          <h1 className="text-xl font-black">Перевозка недоступна</h1>
-          <p className="mt-2 text-sm text-slate-500">{error || "Заявка не найдена."}</p>
+          <h1 className="text-xl font-black">{m("shipmentUnavailable")}</h1>
+          <p className="mt-2 text-sm text-slate-500">{error ? formatError(error, locale) : m("shipmentNotFound")}</p>
           <Button href="/shipments" variant="secondary" className="mt-5">
-            К перевозкам
+            {m("toShipments")}
           </Button>
         </Card>
       </div>
@@ -89,7 +94,7 @@ export default function ShipmentDetail({ params }: { params: Promise<{ id: strin
       : role === "driver"
         ? `/driver/shipments/${shipment.id}`
         : `/offers?shipment=${encodeURIComponent(shipment.id)}`;
-  const actionLabel = role === "carrier" ? "Управление рейсом" : role === "driver" ? "Открыть рейс" : "Предложения";
+  const actionLabel = role === "carrier" ? m("manageTrip") : role === "driver" ? m("openTrip") : m("offers");
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -98,7 +103,7 @@ export default function ShipmentDetail({ params }: { params: Promise<{ id: strin
         className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900"
       >
         <ArrowLeft size={16} />
-        Назад к перевозкам
+        {m("backToShipments")}
       </Link>
 
       <div className="mt-5 grid gap-6 lg:grid-cols-[1.5fr_.8fr]">
@@ -111,69 +116,69 @@ export default function ShipmentDetail({ params }: { params: Promise<{ id: strin
                 <h1 className="mt-2 text-3xl font-black tracking-tight">
                   {shipment.from} → {shipment.to}
                 </h1>
-                <p className="mt-2 text-sm text-slate-500">{shipment.date} · межгородская перевозка</p>
+                <p className="mt-2 text-sm text-slate-500">{m("intercityShipment", { date: formatDate(shipment.date, locale) })}</p>
               </div>
               <div className="sm:text-right">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Бюджет</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{m("budget")}</p>
                 <p className="mt-1 text-2xl font-black">{shipment.price}</p>
               </div>
             </div>
 
             <div className="mt-8 grid gap-3 sm:grid-cols-2">
-              <Info icon={<MapPin />} label="Маршрут" value={`${shipment.from} → ${shipment.to}`} />
-              <Info icon={<Package />} label="Груз" value={`${shipment.cargo} · ${shipment.weight}`} />
-              <Info icon={<Truck />} label="Транспорт" value={shipment.vehicle} />
-              <Info icon={<UserRound />} label="Заказчик" value={shipment.company} />
+              <Info icon={<MapPin />} label={m("route")} value={`${shipment.from} → ${shipment.to}`} />
+              <Info icon={<Package />} label={m("cargo")} value={`${shipment.cargo} · ${shipment.weight}`} />
+              <Info icon={<Truck />} label={m("transport")} value={formatProductValue(shipment.vehicle, locale)} />
+              <Info icon={<UserRound />} label={m("customer")} value={shipment.company} />
             </div>
 
             <div className="mt-7 rounded-2xl bg-slate-50 p-5">
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={18} className="text-teal-700" />
-                <h2 className="font-black">Маршрут</h2>
+                <h2 className="font-black">{m("route")}</h2>
               </div>
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <div>
-                  <p className="text-xs font-bold uppercase text-slate-400">Погрузка</p>
+                  <p className="text-xs font-bold uppercase text-slate-400">{m("loadingPoint")}</p>
                   <p className="mt-1 font-bold">{shipment.from}</p>
-                  <p className="text-sm text-slate-500">{shipment.date}</p>
+                  <p className="text-sm text-slate-500">{formatDate(shipment.date, locale)}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold uppercase text-slate-400">Выгрузка</p>
+                  <p className="text-xs font-bold uppercase text-slate-400">{m("unloadingPoint")}</p>
                   <p className="mt-1 font-bold">{shipment.to}</p>
-                  <p className="text-sm text-slate-500">По условиям заявки</p>
+                  <p className="text-sm text-slate-500">{m("shipmentTerms")}</p>
                 </div>
               </div>
             </div>
           </Card>
 
           <Card className="mt-6">
-            <h2 className="text-lg font-black">История событий</h2>
+            <h2 className="text-lg font-black">{m("eventHistory")}</h2>
             {events.length ? (
               <div className="mt-5 space-y-5">
                 {events.map((event) => (
                   <div key={event.id} className="flex gap-3">
                     <span className="mt-1 size-2.5 shrink-0 rounded-full bg-teal-600" />
                     <div>
-                      <p className="text-sm font-bold">{eventLabels[event.event] || event.event}</p>
-                      <p className="mt-1 text-xs text-slate-400">{formatDateTime(event.occurredAt)}</p>
+                      <p className="text-sm font-bold">{eventLabels[event.event] || m("unknownEvent")}</p>
+                      <p className="mt-1 text-xs text-slate-400">{formatDate(event.occurredAt, locale, { dateStyle: "medium", timeStyle: "short" })}</p>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="mt-4 text-sm text-slate-500">История событий пока пуста.</p>
+              <p className="mt-4 text-sm text-slate-500">{m("noEvents")}</p>
             )}
           </Card>
         </div>
 
         <aside className="space-y-6">
           <Card>
-            <h2 className="font-black">Действия</h2>
+            <h2 className="font-black">{m("actions")}</h2>
             <Button href={actionHref} className="mt-4 w-full">
               {actionLabel}
             </Button>
             <Button variant="secondary" href="/notifications" className="mt-3 w-full">
-              Уведомления
+              {m("notifications")}
             </Button>
           </Card>
 
@@ -184,8 +189,8 @@ export default function ShipmentDetail({ params }: { params: Promise<{ id: strin
                   <Clock3 size={18} />
                 </span>
                 <div>
-                  <p className="font-bold">{offerCount} предложений</p>
-                  <p className="text-sm text-slate-500">Данные из backend RohBar</p>
+                  <p className="font-bold">{m("offerCount", { count: offerCount })}</p>
+                  <p className="text-sm text-slate-500">{m("currentOffers")}</p>
                 </div>
               </div>
             </Card>
@@ -206,14 +211,4 @@ function Info({ icon, label, value }: { icon: React.ReactNode; label: string; va
       <p className="mt-3 font-bold">{value}</p>
     </div>
   );
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat("ru-RU", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(date);
 }

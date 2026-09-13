@@ -14,17 +14,22 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, PageHeader, StatCard, StatusBadge } from "@/components/rohbar-ui";
 import { api } from "@/lib/api";
+import { accountMessages, localizeNotification } from "@/lib/messages/account";
+import { formatError, formatDate } from "@/lib/i18n";
+import type { ApiError } from "@/types/api";
+import { useMessages } from "@/lib/i18n-context";
 import { roleLabel } from "@/lib/session";
 import type { HealthStatus, NotificationItem, Shipment, User } from "@/types";
 
 export default function Dashboard() {
+  const { m, locale } = useMessages(accountMessages);
   const [user, setUser] = useState<User | null>(null);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [fleetCount, setFleetCount] = useState<number | null>(null);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | string>("");
 
   useEffect(() => {
     let active = true;
@@ -32,7 +37,7 @@ export default function Dashboard() {
       const userResult = await api.auth.me();
       if (!active) return;
       if (userResult.error) {
-        setError(userResult.error.message);
+        setError(userResult.error);
         setLoading(false);
         return;
       }
@@ -44,7 +49,7 @@ export default function Dashboard() {
       ]);
       if (!active) return;
 
-      if (shipmentsResult.error) setError(shipmentsResult.error.message);
+      if (shipmentsResult.error) setError(shipmentsResult.error);
       else setShipments(shipmentsResult.data);
       if (!notificationsResult.error) setNotifications(notificationsResult.data);
 
@@ -78,7 +83,7 @@ export default function Dashboard() {
     return (
       <div className="mx-auto max-w-7xl">
         <Card>
-          <p className="text-sm font-semibold text-slate-500">Загружаем кабинет…</p>
+          <p className="text-sm font-semibold text-slate-500">{m("loadingDashboard")}</p>
         </Card>
       </div>
     );
@@ -88,9 +93,9 @@ export default function Dashboard() {
     return (
       <div className="mx-auto max-w-3xl">
         <Card>
-          <h1 className="text-xl font-black">Кабинет недоступен</h1>
-          <p className="mt-2 text-sm text-slate-500">{error || "Не удалось получить текущую сессию."}</p>
-          <Button href="/login" className="mt-5">Войти</Button>
+          <h1 className="text-xl font-black">{m("dashboardUnavailable")}</h1>
+          <p className="mt-2 text-sm text-slate-500">{error ? formatError(error, locale) : m("sessionUnavailable")}</p>
+          <Button href="/login" className="mt-5">{m("login")}</Button>
         </Card>
       </div>
     );
@@ -105,22 +110,22 @@ export default function Dashboard() {
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
-        eyebrow={`RohBar · ${roleLabel(user.role)}`}
-        title={carrier ? "Кабинет перевозчика" : driver ? "Мои рейсы" : admin ? "Центр управления" : "Обзор"}
+        eyebrow={`RohBar · ${roleLabel(user.role, locale)}`}
+        title={carrier ? m("carrierDashboard") : driver ? m("myTrips") : admin ? m("controlCenter") : m("overview")}
         description={
           carrier
-            ? "Актуальные загрузки, автопарк и принятые перевозки."
+            ? m("carrierOverview")
             : driver
-              ? "Назначенные рейсы и текущие статусы доставки."
+              ? m("driverOverview")
               : admin
-                ? "Состояние платформы и операционных процессов RohBar."
-                : "Ваши заявки, предложения и текущие перевозки."
+                ? m("adminOverview")
+                : m("customerOverview")
         }
         action={
           driver || admin ? undefined : (
             <Button href={carrier ? "/carrier/shipments" : "/shipments/new"}>
               <Plus size={18} />
-              {carrier ? "Найти загрузку" : "Создать заявку"}
+              {carrier ? m("findLoad") : m("createShipment")}
             </Button>
           )
         }
@@ -128,24 +133,24 @@ export default function Dashboard() {
 
       {error && (
         <p role="alert" className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-          {error}
+          {formatError(error, locale)}
         </p>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={Truck} label={driver ? "Назначенные рейсы" : "Активные перевозки"} value={String(metrics.active)} />
-        <StatCard icon={Clock3} label={carrier ? "Доступны к работе" : "На рассмотрении"} value={String(metrics.pending)} />
-        <StatCard icon={CheckCircle2} label="Завершено" value={String(metrics.finished)} />
+        <StatCard icon={Truck} label={driver ? m("assignedTrips") : m("activeShipments")} value={String(metrics.active)} />
+        <StatCard icon={Clock3} label={carrier ? m("availableWork") : m("underReview")} value={String(metrics.pending)} />
+        <StatCard icon={CheckCircle2} label={m("completed")} value={String(metrics.finished)} />
         {admin ? (
           <StatCard
             icon={Activity}
-            label="Состояние API"
-            value={health?.status === "ok" ? "OK" : health?.status === "degraded" ? "Degraded" : "—"}
+            label={m("apiStatus")}
+            value={health?.status === "ok" ? m("healthy") : health?.status === "degraded" ? m("degraded") : "—"}
           />
         ) : carrier ? (
-          <StatCard icon={PackageCheck} label="Транспорт в автопарке" value={fleetCount === null ? "—" : String(fleetCount)} />
+          <StatCard icon={PackageCheck} label={m("fleetVehicles")} value={fleetCount === null ? "—" : String(fleetCount)} />
         ) : (
-          <StatCard icon={Bell} label="Непрочитанные" value={String(metrics.unread)} />
+          <StatCard icon={Bell} label={m("unread")} value={String(metrics.unread)} />
         )}
       </div>
 
@@ -154,12 +159,12 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-black">
-                {carrier ? "Доступные и активные заявки" : driver ? "Назначенные рейсы" : "Последние перевозки"}
+                {carrier ? m("availableActiveShipments") : driver ? m("assignedTrips") : m("recentShipments")}
               </h2>
-              <p className="mt-1 text-sm text-slate-500">Данные из backend RohBar</p>
+              <p className="mt-1 text-sm text-slate-500">{m("liveData")}</p>
             </div>
             <Link href="/shipments" className="text-sm font-bold text-teal-700">
-              Все <ArrowUpRight size={15} className="inline" />
+              {m("all")} <ArrowUpRight size={15} className="inline" />
             </Link>
           </div>
 
@@ -175,7 +180,7 @@ export default function Dashboard() {
                     <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-400">
                       <span>{item.id}</span>
                       <span>·</span>
-                      <span>{item.date}</span>
+                      <span>{formatDate(item.date, locale)}</span>
                       <StatusBadge status={item.status} />
                     </div>
                     <p className="mt-1 font-black">{item.from} → {item.to}</p>
@@ -186,15 +191,15 @@ export default function Dashboard() {
               ))}
             </div>
           ) : (
-            <p className="mt-5 text-sm text-slate-500">Для вашей роли пока нет перевозок.</p>
+            <p className="mt-5 text-sm text-slate-500">{m("noShipments")}</p>
           )}
         </Card>
 
         <Card>
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-black">Уведомления</h2>
-              <p className="mt-1 text-sm text-slate-500">Последние события аккаунта</p>
+              <h2 className="text-lg font-black">{m("notifications")}</h2>
+              <p className="mt-1 text-sm text-slate-500">{m("recentEvents")}</p>
             </div>
             <Bell size={19} className="text-slate-400" />
           </div>
@@ -202,16 +207,16 @@ export default function Dashboard() {
             <div className="mt-5 space-y-3">
               {latestNotifications.map((item) => (
                 <div key={item.id} className="rounded-2xl bg-slate-50 p-4 text-sm leading-5">
-                  <p className="font-bold">{item.title}</p>
-                  <p className="mt-1 text-slate-500">{item.text}</p>
+                  <p className="font-bold">{localizeNotification(item, locale).title}</p>
+                  <p className="mt-1 text-slate-500">{localizeNotification(item, locale).text}</p>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="mt-5 text-sm text-slate-500">Новых уведомлений пока нет.</p>
+            <p className="mt-5 text-sm text-slate-500">{m("noNewNotifications")}</p>
           )}
           <Button href="/notifications" variant="secondary" className="mt-5 w-full">
-            Все уведомления
+            {m("allNotifications")}
           </Button>
         </Card>
       </div>

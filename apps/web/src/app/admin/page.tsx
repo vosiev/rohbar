@@ -3,6 +3,10 @@
 import { Activity, Database, Server, Truck, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Card, PageHeader, StatCard, StatusBadge } from "@/components/rohbar-ui";
+import { useMessages } from "@/lib/i18n-context";
+import { operationMessages } from "@/lib/messages/operations";
+import { formatError } from "@/lib/i18n";
+import type { ApiError } from "@/types/api";
 import { api } from "@/lib/api";
 import type { DriverAssignment, FleetVehicle, HealthStatus, Shipment } from "@/types";
 
@@ -15,13 +19,14 @@ type About = {
 };
 
 export default function AdminPage() {
+  const { m, locale } = useMessages(operationMessages);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [about, setAbout] = useState<About | null>(null);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [fleet, setFleet] = useState<FleetVehicle[]>([]);
   const [assignments, setAssignments] = useState<DriverAssignment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | string>("");
 
   useEffect(() => {
     let active = true;
@@ -36,7 +41,7 @@ export default function AdminPage() {
       const firstError = [healthResult, aboutResult, shipmentResult, fleetResult, assignmentResult]
         .map((result) => result.error)
         .find(Boolean);
-      if (firstError) setError(firstError.message);
+      if (firstError) setError(firstError);
       if (!healthResult.error) setHealth(healthResult.data);
       if (!aboutResult.error) setAbout(aboutResult.data);
       if (!shipmentResult.error) setShipments(shipmentResult.data);
@@ -52,26 +57,26 @@ export default function AdminPage() {
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
-        eyebrow="RohBar · Admin"
-        title="Центр управления"
-        description="Операционное состояние backend, инфраструктуры и перевозок."
+        eyebrow={m("adminEyebrow")}
+        title={m("controlCenter")}
+        description={m("adminDescription")}
       />
 
       {error && (
         <p role="alert" className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-          {error}
+          {formatError(error, locale)}
         </p>
       )}
 
       {loading ? (
-        <Card>Загружаем состояние платформы…</Card>
+        <Card>{m("loadingPlatform")}</Card>
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard icon={Activity} label="API" value={health?.status === "ok" ? "OK" : "Degraded"} />
-            <StatCard icon={Truck} label="Перевозки" value={String(shipments.length)} />
-            <StatCard icon={Server} label="Транспорт" value={String(fleet.length)} />
-            <StatCard icon={UserRound} label="Назначения" value={String(assignments.length)} />
+            <StatCard icon={Activity} label="API" value={health?.status === "ok" ? m("apiHealthy") : m("apiDegraded")} />
+            <StatCard icon={Truck} label={m("shipments")} value={String(shipments.length)} />
+            <StatCard icon={Server} label={m("transport")} value={String(fleet.length)} />
+            <StatCard icon={UserRound} label={m("assignments")} value={String(assignments.length)} />
           </div>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -79,8 +84,8 @@ export default function AdminPage() {
               <div className="flex items-center gap-3">
                 <Database className="text-teal-700" />
                 <div>
-                  <h2 className="font-black">Инфраструктура</h2>
-                  <p className="text-sm text-slate-500">Проверяется реальным health endpoint.</p>
+                  <h2 className="font-black">{m("infrastructure")}</h2>
+                  <p className="text-sm text-slate-500">{m("healthDescription")}</p>
                 </div>
               </div>
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -90,14 +95,14 @@ export default function AdminPage() {
               {about && (
                 <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
                   <p><strong>API:</strong> {about.name} {about.version}</p>
-                  <p className="mt-1"><strong>Realtime:</strong> {about.realtime.join(", ")}</p>
-                  <p className="mt-1"><strong>Telegram:</strong> {about.telegram ? "configured" : "not configured"}</p>
+                  <p className="mt-1"><strong>{m("realtime")}</strong> {about.realtime.join(", ")}</p>
+                  <p className="mt-1"><strong>Telegram:</strong> {about.telegram ? m("configured") : m("notConfigured")}</p>
                 </div>
               )}
             </Card>
 
             <Card>
-              <h2 className="font-black">Последние перевозки</h2>
+              <h2 className="font-black">{m("latestShipments")}</h2>
               {shipments.slice(0, 6).length ? (
                 <div className="mt-4 divide-y divide-slate-100">
                   {shipments.slice(0, 6).map((shipment) => (
@@ -111,7 +116,7 @@ export default function AdminPage() {
                   ))}
                 </div>
               ) : (
-                <p className="mt-4 text-sm text-slate-500">Перевозок пока нет.</p>
+                <p className="mt-4 text-sm text-slate-500">{m("noShipments")}</p>
               )}
             </Card>
           </div>
@@ -122,11 +127,12 @@ export default function AdminPage() {
 }
 
 function HealthItem({ label, ok }: { label: string; ok: boolean }) {
+  const { m } = useMessages(operationMessages);
   return (
     <div className="rounded-2xl border border-slate-200 p-4">
       <p className="text-xs font-bold uppercase text-slate-400">{label}</p>
       <p className={`mt-2 font-black ${ok ? "text-emerald-700" : "text-red-700"}`}>
-        {ok ? "Healthy" : "Unavailable"}
+        {ok ? m("healthy") : m("unavailable")}
       </p>
     </div>
   );

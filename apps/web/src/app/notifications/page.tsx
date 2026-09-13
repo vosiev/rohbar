@@ -4,7 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Bell, CheckCircle2, FileWarning, MessageSquareText } from "lucide-react";
 import { Button, Card, PageHeader } from "@/components/rohbar-ui";
 import { api } from "@/lib/api";
-import type { NotificationItem } from "@/types";
+import { accountMessages, localizeNotification } from "@/lib/messages/account";
+import { formatError } from "@/lib/i18n";
+import type { ApiError } from "@/types/api";
+import { useMessages } from "@/lib/i18n-context";
+import type { Locale, NotificationItem } from "@/types";
 
 const icons = {
   offer: Bell,
@@ -14,16 +18,17 @@ const icons = {
 } as const;
 
 export default function Notifications() {
+  const { m, locale } = useMessages(accountMessages);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiError | string>("");
 
   useEffect(() => {
     let active = true;
     void api.notifications.list().then((result) => {
       if (!active) return;
-      if (result.error) setError(result.error.message);
+      if (result.error) setError(result.error);
       else setItems(result.data);
       setLoading(false);
     });
@@ -39,7 +44,7 @@ export default function Notifications() {
     setBusy(true);
     setError("");
     const result = await api.notifications.readAll();
-    if (result.error) setError(result.error.message);
+    if (result.error) setError(result.error);
     else setItems((current) => current.map((item) => ({ ...item, read: true })));
     setBusy(false);
   }
@@ -49,7 +54,7 @@ export default function Notifications() {
     if (!current || current.read) return;
     const result = await api.notifications.read(id);
     if (result.error) {
-      setError(result.error.message);
+      setError(result.error);
       return;
     }
     setItems((value) => value.map((item) => (item.id === id ? { ...item, read: true } : item)));
@@ -59,12 +64,12 @@ export default function Notifications() {
     <div className="mx-auto max-w-3xl">
       <PageHeader
         eyebrow="RohBar"
-        title="Уведомления"
-        description="События по заявкам, предложениям и перевозкам."
+        title={m("notifications")}
+        description={m("notificationDescription")}
         action={
           unread ? (
             <Button variant="secondary" disabled={busy} onClick={markAll}>
-              {busy ? "Обновление…" : "Отметить всё прочитанным"}
+              {busy ? m("updating") : m("markAllRead")}
             </Button>
           ) : undefined
         }
@@ -72,13 +77,13 @@ export default function Notifications() {
 
       {error && (
         <p role="alert" className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-          {error}
+          {formatError(error, locale)}
         </p>
       )}
 
       {loading ? (
         <Card>
-          <p className="text-sm font-semibold text-slate-500">Загружаем уведомления…</p>
+          <p className="text-sm font-semibold text-slate-500">{m("loadingNotifications")}</p>
         </Card>
       ) : items.length ? (
         <div className="space-y-3">
@@ -98,12 +103,12 @@ export default function Notifications() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">
-                        <h2 className="font-bold">{item.title}</h2>
+                        <h2 className="font-bold">{localizeNotification(item, locale).title}</h2>
                         {!item.read && <span className="mt-1 size-2.5 shrink-0 rounded-full bg-teal-600" />}
                       </div>
-                      <p className="mt-1 text-sm leading-6 text-slate-500">{item.text}</p>
+                      <p className="mt-1 text-sm leading-6 text-slate-500">{localizeNotification(item, locale).text}</p>
                       <p className="mt-3 text-xs font-semibold text-slate-400">
-                        {formatDateTime(item.createdAt)}
+                        {formatDateTime(item.createdAt, locale)}
                       </p>
                     </div>
                   </div>
@@ -114,17 +119,17 @@ export default function Notifications() {
         </div>
       ) : (
         <Card>
-          <p className="font-bold">Уведомлений пока нет</p>
-          <p className="mt-1 text-sm text-slate-500">Новые события RohBar появятся здесь.</p>
+          <p className="font-bold">{m("noNotifications")}</p>
+          <p className="mt-1 text-sm text-slate-500">{m("notificationEmptyDescription")}</p>
         </Card>
       )}
     </div>
   );
 }
 
-function formatDateTime(value: string) {
+function formatDateTime(value: string, locale: Locale) {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? value
-    : new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short" }).format(date);
+    : new Intl.DateTimeFormat(locale === "tg" ? "tg-TJ" : "ru-RU", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
