@@ -24,6 +24,7 @@ struct GeoPlace {
     geoname_id: i64,
     name: String,
     admin1_code: Option<String>,
+    admin1_name: Option<String>,
     feature_code: String,
     population: i64,
     latitude: f64,
@@ -90,7 +91,7 @@ pub(crate) async fn search_places(
     }
     let rows = sqlx::query_as::<_, GeoPlace>(
         r#"
-        SELECT geoname_id,name,admin1_code,feature_code,population,latitude,longitude
+        SELECT geoname_id,name,admin1_code,admin1_name,feature_code,population,latitude,longitude
         FROM geo_places
         WHERE search_name ILIKE '%' || $1 || '%'
         ORDER BY
@@ -350,7 +351,7 @@ fn decode_component(bytes: &[u8], index: &mut usize) -> Result<i64, ()> {
     let mut result = 0u64;
     let mut shift = 0u32;
     loop {
-        let byte = *bytes.get(*index)?.checked_sub(63)?;
+        let byte = bytes.get(*index).copied()?.checked_sub(63)?;
         *index += 1;
         if byte > 0x3f || shift > 60 {
             return Err(());
@@ -425,7 +426,7 @@ mod tests {
     }
 
     fn encode_component(value: i64, output: &mut String) {
-        let mut value = if value < 0 { (!(value << 1)) as u64 } else { (value << 1) as u64 };
+        let mut value = ((value << 1) ^ (value >> 63)) as u64;
         while value >= 0x20 {
             output.push(char::from_u32(((0x20 | (value & 0x1f)) + 63) as u32).unwrap());
             value >>= 5;
