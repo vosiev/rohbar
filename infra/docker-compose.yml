@@ -38,6 +38,20 @@ services:
       start_period: 5s
     logging: *default-logging
 
+  valhalla:
+    image: ghcr.io/valhalla/valhalla:3.8.3
+    restart: unless-stopped
+    command: ["valhalla_service", "/data/valhalla.json", "3"]
+    volumes:
+      - "${VALHALLA_DATA_DIR:-/opt/rohbar-routing}:/data:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8002/status >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging: *default-logging
+
   api:
     build:
       context: ../apps/api
@@ -50,6 +64,7 @@ services:
     environment:
       DATABASE_URL: postgresql://rohbar:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/rohbar
       REDIS_URL: redis://redis:6379
+      VALHALLA_URL: ${VALHALLA_URL:-http://valhalla:8002}
       BIND_ADDR: 0.0.0.0:8080
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?FRONTEND_ORIGIN is required}
       SESSION_COOKIE_SECURE: "true"
@@ -75,6 +90,7 @@ services:
       NEXT_TELEMETRY_DISABLED: "1"
       HOSTNAME: 0.0.0.0
       PORT: "3000"
+      YANDEX_TILES_API_KEY: ${YANDEX_TILES_API_KEY:-}
     ports:
       - "${ROHBAR_BIND_ADDRESS:-127.0.0.1}:${ROHBAR_WEB_PORT:-13000}:3000"
     logging: *default-logging
