@@ -24,7 +24,7 @@ jobs:
       - run: pnpm --dir apps/web typecheck
       - run: pnpm --dir apps/web typecheck:compat
       - run: pnpm --dir apps/web build
-      - run: node --test scripts/test-telegram-link.cjs scripts/test-telegram-runtime.cjs
+      - run: node --test scripts/test-telegram-link.cjs scripts/test-telegram-runtime.cjs scripts/test-free-routing.cjs
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
   api:
