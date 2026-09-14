@@ -10,6 +10,7 @@ CREATE TABLE geo_places (
     longitude DOUBLE PRECISION NOT NULL CHECK (longitude BETWEEN -180 AND 180),
     feature_code TEXT NOT NULL,
     admin1_code TEXT,
+    admin1_name TEXT,
     population BIGINT NOT NULL DEFAULT 0 CHECK (population >= 0),
     country_code TEXT NOT NULL DEFAULT 'RU' CHECK (country_code = 'RU'),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
