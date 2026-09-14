@@ -1,4 +1,5 @@
 mod telegram;
+mod telegram_link;
 
 use argon2::{
     Argon2,
@@ -56,6 +57,9 @@ pub struct User {
     role: String,
     phone: Option<String>,
     telegram_id: Option<i64>,
+    #[serde(skip)]
+    #[sqlx(default)]
+    telegram_session_version: i64,
 }
 
 #[derive(Clone, Serialize, Deserialize, FromRow)]
@@ -332,6 +336,15 @@ async fn main() {
         .route("/api/v1/auth/register", post(auth_register))
         .route("/api/v1/auth/logout", post(auth_logout))
         .route("/api/v1/auth/telegram", post(auth_telegram))
+        .route("/api/v1/profile/telegram", get(telegram_link::status))
+        .route(
+            "/api/v1/profile/telegram/link-code",
+            post(telegram_link::issue),
+        )
+        .route(
+            "/api/v1/profile/telegram/unlink",
+            post(telegram_link::unlink),
+        )
         .route("/api/v1/profile", post(update_profile))
         .route("/api/v1/profile/password", post(update_password))
         .route(
@@ -561,10 +574,15 @@ async fn session_user(headers: &HeaderMap, state: &SharedState) -> Result<User, 
         .get(format!("rohbar:session:{sid}"))
         .await
         .map_err(|_| json_error(StatusCode::UNAUTHORIZED, "Invalid session"))?;
-    let user_id = Uuid::parse_str(&uid)
+    let (uid, telegram_version) = uid
+        .split_once(':')
+        .map_or((uid.as_str(), None), |(id, version)| (id, Some(version)));
+    let user_id = Uuid::parse_str(uid)
         .map_err(|_| json_error(StatusCode::UNAUTHORIZED, "Invalid session"))?;
-    sqlx::query_as::<_, User>("SELECT id,email,name,role,phone,telegram_id FROM users WHERE id=$1")
+    let version = telegram_version.unwrap_or("0");
+    sqlx::query_as::<_, User>("SELECT id,email,name,role,phone,telegram_id,telegram_session_version FROM users WHERE id=$1 AND telegram_session_version::text=$2")
         .bind(user_id)
+        .bind(version)
         .fetch_one(&state.db)
         .await
         .map_err(|_| json_error(StatusCode::UNAUTHORIZED, "Invalid session"))
@@ -596,6 +614,12 @@ pub(crate) async fn create_session(
     state: &SharedState,
     user_id: Uuid,
 ) -> Result<HeaderValue, Response> {
+    let version =
+        sqlx::query_scalar::<_, i64>("SELECT telegram_session_version FROM users WHERE id=$1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|_| json_error(StatusCode::UNAUTHORIZED, "Invalid session"))?;
     let sid = Uuid::new_v4().to_string();
     let mut conn = state
         .redis
@@ -605,7 +629,7 @@ pub(crate) async fn create_session(
     let _: () = conn
         .set_ex(
             format!("rohbar:session:{sid}"),
-            user_id.to_string(),
+            format!("{user_id}:{version}"),
             604_800,
         )
         .await
@@ -619,7 +643,7 @@ async fn auth_login(State(state): State<SharedState>, Json(req): Json<LoginReque
         return json_error(StatusCode::BAD_REQUEST, "Email and password are required");
     }
     let row = sqlx::query_as::<_, (Uuid, String, String, String, String, Option<String>)>(
-        "SELECT id,email,name,role,password_hash,phone FROM users WHERE email=$1",
+        "SELECT id,email,name,role,password_hash,phone FROM users WHERE email=$1 AND password_login_enabled",
     )
     .bind(email)
     .fetch_optional(&state.db)
@@ -840,7 +864,7 @@ async fn update_password(
         Ok(hash) => hash.to_string(),
         Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Password hashing failed"),
     };
-    match sqlx::query("UPDATE users SET password_hash=$1,updated_at=NOW() WHERE id=$2")
+    match sqlx::query("UPDATE users SET password_hash=$1,password_login_enabled=TRUE,updated_at=NOW() WHERE id=$2")
         .bind(hash)
         .bind(user.id)
         .execute(&state.db)

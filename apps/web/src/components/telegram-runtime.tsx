@@ -1,4 +1,14 @@
 "use client";
-import Script from "next/script";
-import { useTelegram } from "@/lib/telegram";
-export function TelegramRuntime(){useTelegram();return <Script src="https://telegram.org/js/telegram-web-app.js?57" strategy="afterInteractive"/>}
+
+import { useEffect } from "react";
+import { getTelegram } from "@/lib/telegram";
+
+export function TelegramRuntime() {
+  useEffect(() => {
+    const app = getTelegram();
+    app?.ready();
+    app?.expand();
+    window.dispatchEvent(new Event("telegram-webapp-ready"));
+  }, []);
+  return null;
+}
